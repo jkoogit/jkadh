@@ -90,7 +90,7 @@ Issue 제목은 다음 형식을 사용한다.
 [POLICY] Issue 작성정책 수립
 [POLICY] Git 작업관리방안 수립
 [DOC] 대화운영규칙 문서 작성
-[ORG] AI 역할정의 문서 작성
+[ORG] 에이전트 역할별 운영규칙 문서 작성
 ```
 
 ## 7. 본문 구조
@@ -174,7 +174,7 @@ GPT 세션과 Codex 작업 과정에서 문서 포맷, 파일명, 폴더 구조,
 ## 제외 범위
 
 - 대화운영규칙 작성
-- AI 역할정의 작성
+- 에이전트 역할별 운영규칙 작성
 - Git 작업관리방안 상세 작성
 - 실제 서비스 설계 문서 작성
 - 템플릿 문서 작성
@@ -244,6 +244,46 @@ new task_ branch
 
 Backlog 개별 파일은 생성일 기준 날짜 폴더에 고정하며, 해결되더라도 파일을 이동하지 않는다.
 
+Backlog 상태는 다음 값을 사용한다.
+
+| 상태 | 의미 |
+|---|---|
+| Open | 등록만 되었고 아직 분류하지 않음 |
+| Ready | 바로 Issue로 승격 가능 |
+| Blocked | 선행 Issue, 결정, 문서가 필요함 |
+| Deferred | 필요하지만 당장 우선순위가 낮음 |
+| Issue Linked | GitHub Issue로 승격됨 |
+| Resolved | 해결됨 |
+| Rejected | 채택하지 않음 |
+
+Backlog 처리시점은 다음 값을 사용한다.
+
+| 처리시점 | 의미 |
+|---|---|
+| 즉시 | 현재 Issue 범위를 해치지 않고 바로 처리 가능 |
+| Issue 종료 시 | 현재 Issue 완료 전 정리 필요 |
+| 다음 Issue 선정 시 | 다음 작업 후보로 검토 |
+| 선행 작업 완료 후 | 의존 대상이 해결되면 재검토 |
+| 정기 점검 시 | 장기 보류 항목 점검 |
+
+Issue 진행 중에는 백로그를 해결하려고 하지 않고 등록과 최소 분류를 우선한다.
+
+Issue 종료 전에는 다음 순서로 백로그를 정리한다.
+
+```text
+Open 확인
+↓
+현재 Issue에서 해결된 항목 Resolved 처리
+↓
+즉시 처리 가능한 항목 Ready 분류
+↓
+선행 작업이 필요한 항목 Blocked 분류
+↓
+장기 보류 항목 Deferred 분류
+↓
+미해결 인덱스 갱신
+```
+
 해결된 Backlog는 개별 파일의 상태를 `Resolved`로 바꾸고, 미해결 인덱스에서 제거한다.
 
 Backlog가 해결되면 다음 항목을 확인한다.
@@ -261,8 +301,13 @@ Backlog가 해결되면 다음 항목을 확인한다.
 
 ## 작업 이력
 
-| 작업일시 | 작업 에이전트 | 작성자 | 변경 유형 | 내용 |
-|---|---|---|---|---|
-| 2026-07-04 | Codex | jk / Codex | Create | Issue 작성정책 최초 작성 |
-| 2026-07-04 | Codex | jk / Codex | Revise | Backlog 미해결 인덱스와 날짜 기반 파일 관리 원칙 반영 |
-| 2026-07-04 | Codex | jk / Codex | Revise | Backlog 해결 시 출처/관련 문서 조건부 현행화 규칙 추가 |
+| 작업일시 | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
+|---|---|---|---|---|---|---|
+| 2026-07-04 | Codex | GPT-5 | 문서 작성 | jk / Codex | Create | Issue 작성정책 최초 작성 |
+| 2026-07-04 | Codex | GPT-5 | 문서 작성 | jk / Codex | Revise | Backlog 미해결 인덱스와 날짜 기반 파일 관리 원칙 반영 |
+| 2026-07-04 | Codex | GPT-5 | 문서 작성 | jk / Codex | Revise | Backlog 해결 시 출처/관련 문서 조건부 현행화 규칙 추가 |
+| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 에이전트 역할체계 문서명 반영 |
+| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력에 AI 모델 정보를 포함하도록 수정 |
+| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력 Header를 에이전트와 역할 중심으로 단순화 |
+| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력을 작업 도구, AI 모델, 에이전트 역할로 분리 |
+| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태와 처리시점 기준 추가 |
