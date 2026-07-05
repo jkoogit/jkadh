@@ -259,6 +259,7 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 - [POL-003 Git 작업관리방안](../03.정책/POL-003_Git_작업관리방안.md)
 - [POL-005 사람 승인 경계 정책](../03.정책/POL-005_사람_승인_경계_정책.md)
 - [POL-006 근거 기반 결과 수용 기준](../03.정책/POL-006_근거_기반_결과_수용_기준.md)
+- [OPS-001 Token 운영](../10.운영/OPS-001_Token_운영.md)
 - [Backlog 미해결 인덱스](../15.로그/backlog/README.md)
 
 ---
@@ -274,3 +275,4 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 수용 후보 세부 기준 문서 연결 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 상태 전이값과 승인 상태 참조에 한글명 병기 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Agent Capability Matrix 문서 연결 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Token 운영 정책 문서 연결 |
