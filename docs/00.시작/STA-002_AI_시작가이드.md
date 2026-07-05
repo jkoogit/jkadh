@@ -9,7 +9,7 @@
 > 작성 에이전트: CTO 에이전트
 > 기준 브랜치: dev
 > 작업 브랜치: task_codex/002-agent-operation-rules
-> 최종 수정일: 2026-07-04
+> 최종 수정일: 2026-07-05
 
 ## 1. 목적
 
@@ -92,12 +92,12 @@ Backlog 상태 확인
 
 작업 전 Backlog 상태를 확인한다.
 
-| 상태 | 시작 시 처리 |
-|---|---|
-| Ready | 다음 Issue 후보로 검토한다. |
-| Blocked | 의존 대상이 해결되었는지 확인한다. |
-| Deferred | 현재 작업 범위에 포함하지 않는다. |
-| Issue Linked | 연결 Issue와 PR 상태를 확인한다. |
+| 상태 | 한글명 | 시작 시 처리 |
+|---|---|---|
+| Ready | 준비 | 다음 Issue 후보로 검토한다. |
+| Blocked | 차단 | 의존 대상이 해결되었는지 확인한다. |
+| Deferred | 보류 | 현재 작업 범위에 포함하지 않는다. |
+| Issue Linked | 이슈 연결 | 연결 Issue와 PR 상태를 확인한다. |
 
 현재 Issue 범위 밖의 새 논점은 Backlog로 등록한다.
 
@@ -149,3 +149,4 @@ AI는 세션 중 다음 태그와 별칭을 같은 명령으로 인식한다.
 |---|---|---|---|---|---|---|
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Create | AI 시작가이드 최초 작성 |
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 세션 태그와 승급 태그 별칭 추가 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태 확인 표에 한글명 병기 |
