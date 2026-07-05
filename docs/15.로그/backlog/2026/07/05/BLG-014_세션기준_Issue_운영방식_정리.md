@@ -1,7 +1,7 @@
 # BLG-014 세션기준 Issue 운영방식 정리
 
 > Backlog ID: BLG-014
-> 상태: Ready
+> 상태: Resolved
 > 유형: PROCESS
 > 생성일: 2026-07-05
 > 처리시점: 다음 Issue 선정 시
@@ -13,9 +13,13 @@
 > - [POL-003 Git 작업관리방안](../../../../../03.정책/POL-003_Git_작업관리방안.md)
 > 관련 문서:
 > - [STA-002 AI 시작가이드](../../../../../00.시작/STA-002_AI_시작가이드.md)
-> 연결 Issue: None
-> 연결 PR: [#15](https://github.com/jkoogit/jkadh/pull/15)
-> 해결 문서: None
+> 연결 Issue: [#19](https://github.com/jkoogit/jkadh/issues/19)
+> 연결 PR:
+> - [#15](https://github.com/jkoogit/jkadh/pull/15)
+> - [#20](https://github.com/jkoogit/jkadh/pull/20)
+> 해결 문서:
+> - [POL-002 Issue 작성정책](../../../../../03.정책/POL-002_Issue_작성정책.md)
+> - [POL-003 Git 작업관리방안](../../../../../03.정책/POL-003_Git_작업관리방안.md)
 
 ## 1. 내용
 
@@ -55,3 +59,6 @@ Issue를 짧은 태스크 단위가 아니라 세션 또는 업무 단위로 관
 |---|---|---|---|
 | 2026-07-05 | Ready | - | 세션기준 Issue 운영과 `[번외]` 작업 분리 기준을 후속 정책 정리 후보로 등록 |
 | 2026-07-06 | Ready | [POL-002](../../../../../03.정책/POL-002_Issue_작성정책.md), [POL-003](../../../../../03.정책/POL-003_Git_작업관리방안.md) | 진행 중 끼어든 주제의 현재 Issue, `[번외]`, Backlog, 새 Issue 후보 분류 기준을 정책 문서에 일부 반영 |
+| 2026-07-06 | Issue Linked | [#19](https://github.com/jkoogit/jkadh/issues/19) | BLG-014와 BLG-015를 함께 처리하는 GitHub Issue로 연결 |
+| 2026-07-06 | Resolved | [#20](https://github.com/jkoogit/jkadh/pull/20) | 해결 PR 연결 |
+| 2026-07-06 | Resolved | [POL-002](../../../../../03.정책/POL-002_Issue_작성정책.md), [POL-003](../../../../../03.정책/POL-003_Git_작업관리방안.md) | Issue를 세션 또는 업무 단위로 운용하고 같은 Issue 안에 여러 PR을 연결할 수 있는 기준을 정책 문서에 반영 |

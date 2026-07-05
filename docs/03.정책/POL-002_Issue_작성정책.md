@@ -47,14 +47,15 @@ JKADH에서 Issue는 다음 역할을 가진다.
 
 Issue 작성 원칙은 다음과 같다.
 
-- 하나의 Issue는 하나의 작업 단위를 가진다.
-- 하나의 Issue는 하나의 `task_` 브랜치와 연결한다.
-- 하나의 Issue는 하나의 PR로 닫는 것을 기본으로 한다.
+- 하나의 Issue는 하나의 세션 또는 업무 단위를 가진다.
+- 하나의 `task_` 브랜치는 하나의 Issue와 연결한다.
+- 하나의 Issue는 하나의 PR로 닫는 것을 기본으로 하되, 같은 Issue 안에서 검토 가능한 정리 단위가 나뉘면 여러 PR을 연결할 수 있다.
 - Issue에는 반드시 완료 조건을 작성한다.
 - Issue에는 반드시 제외 범위를 작성한다.
 - 실행 중 나온 새 아이디어는 현재 Issue에 즉시 섞지 않는다.
 - 새 아이디어는 Backlog 또는 후속 Issue 후보로 분리한다.
-- PR 본문에는 `Closes #이슈번호`를 포함한다.
+- PR 본문에는 기본적으로 `Related #이슈번호`를 포함한다.
+- 완료 조건이 모두 충족되어 해당 PR 머지만으로 Issue를 닫아도 되는 경우에만 `Closes #이슈번호` 같은 자동 종료 키워드를 사용한다.
 
 ## 5. Issue 유형
 
@@ -100,7 +101,7 @@ Issue 제목은 다음 형식을 사용한다.
 - 이슈명은 한글을 사용할 수 있으며, 단어 구분은 `_`를 사용한다.
 - Issue 생성 전에는 순번을 확정할 수 없으므로, Issue 생성 직후 기존 작업 Issue 목록을 기준으로 순번을 확정하고 제목을 보정한다.
 - 문서 prefix가 아직 정해지지 않은 작업은 가장 가까운 작업 유형을 사용하고, 필요하면 Issue 본문에 판단 근거를 남긴다.
-- GitHub Issue URL의 `#번호`는 링크와 자동 종료에만 사용하고, 제목의 Issue 순번으로 사용하지 않는다.
+- GitHub Issue URL의 `#번호`는 링크와 종료 판단에만 사용하고, 제목의 Issue 순번으로 사용하지 않는다.
 
 ## 7. 본문 구조
 
@@ -132,7 +133,7 @@ Issue 본문은 다음 구조를 기본으로 한다.
 - [ ] 관련 문서 링크가 깨지지 않는다.
 - [ ] 필요한 검증을 수행했다.
 - [ ] PR이 `dev`를 대상으로 생성되어 있다.
-- [ ] PR 본문에 `Closes #이슈번호`가 포함되어 있다.
+- [ ] PR 본문에 `Related #이슈번호`가 포함되어 있다.
 
 ## 관련 문서
 
@@ -197,7 +198,7 @@ GPT 세션과 Codex 작업 과정에서 문서 포맷, 파일명, 폴더 구조,
 - [ ] Markdown 링크 검증이 통과한다.
 - [ ] `git diff --check`가 통과한다.
 - [ ] PR이 `dev` 대상으로 생성되어 있다.
-- [ ] PR 본문에 `Closes #이슈번호`가 포함되어 있다.
+- [ ] PR 본문에 `Related #이슈번호`가 포함되어 있다.
 
 ## 관련 브랜치
 
@@ -231,8 +232,9 @@ new task_ branch
 원칙은 다음과 같다.
 
 - Issue 번호는 PR 제목 또는 본문에 포함한다.
-- PR 본문에는 완료 대상 Issue를 닫기 위해 `Closes #이슈번호`를 포함한다.
-- PR이 `dev`에 머지되면 해당 Issue를 완료 상태로 본다.
+- PR 본문에는 기본적으로 `Related #이슈번호`를 포함한다.
+- PR 머지만으로 Issue를 닫아도 되는 경우에만 `Closes #이슈번호` 같은 자동 종료 키워드를 사용한다.
+- PR이 `dev`에 머지되더라도 해당 Issue의 완료 조건 충족 여부를 별도로 확인한다.
 - 이어서 작업할 경우 최신 `origin/dev`에서 새 `task_` 브랜치를 만든다.
 
 ## 10. Backlog 처리
@@ -248,6 +250,8 @@ new task_ branch
 | Rejected | 이번에는 제외할 항목 |
 
 현재 Issue의 완료 조건을 먼저 끝내는 것을 우선한다.
+
+세션 회고와 종료 정리는 별도 Issue로 분리하지 않고 현재 Issue의 마무리 태스크로 처리한다. 회고가 독립적인 정책, 설계, 운영 개선 작업으로 커지면 Backlog 또는 새 Issue 후보로 분리한다.
 
 Issue 진행 중 현재 태스크와 맞지 않는 주제가 들어오면 즉시 작업하지 않고 먼저 분류한다.
 
@@ -333,6 +337,8 @@ Backlog가 해결되면 다음 항목을 확인한다.
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태와 처리시점 기준 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태 정의에 한글명 병기 |
 | 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | 진행 중 끼어든 주제의 현재 Issue, 번외, Backlog 분류 기준 추가 |
+| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue를 세션 또는 업무 단위로 운용하고 회고를 현재 Issue의 마무리 태스크로 처리하는 기준 추가 |
+| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 본문 기본 연결 문구를 Related로 바꾸고 Issue 자동 종료 키워드를 예외 기준으로 제한 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 형식과 생성 후 제목 보정 기준 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 번호를 GitHub 채번이 아닌 Issue 전용 순번으로 변경 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목의 ISS prefix 제거 |
