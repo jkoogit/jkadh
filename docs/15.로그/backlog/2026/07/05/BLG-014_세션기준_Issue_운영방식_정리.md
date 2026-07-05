@@ -14,7 +14,7 @@
 > 관련 문서:
 > - [STA-002 AI 시작가이드](../../../../../00.시작/STA-002_AI_시작가이드.md)
 > 연결 Issue: None
-> 연결 PR: None
+> 연결 PR: [#15](https://github.com/jkoogit/jkadh/pull/15)
 > 해결 문서: None
 
 ## 1. 내용
