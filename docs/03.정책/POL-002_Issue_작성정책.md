@@ -80,18 +80,27 @@ Issue 작성 원칙은 다음과 같다.
 Issue 제목은 다음 형식을 사용한다.
 
 ```text
-[TYPE] 작업명
+[이슈번호]_[작업유형]_<이슈명>
 ```
 
 예:
 
 ```text
-[DOC] 문서관리방안 및 폴더 인덱스 구축
-[POLICY] Issue 작성정책 수립
-[POLICY] Git 작업관리방안 수립
-[DOC] 대화운영규칙 문서 작성
-[ORG] 에이전트 역할별 운영규칙 문서 작성
+[001]_[POL]_문서_거버넌스_기반_구축
+[002]_[ORG]_에이전트_운영규칙_및_태스크_흐름_정리
+[005]_[RET]_세션_회고_정리
+[006]_[STA]_세션_시작_및_태스크_정리_절차_보강
 ```
+
+규칙은 다음과 같다.
+
+- `[이슈번호]`는 GitHub가 Issue와 PR을 섞어 부여하는 번호가 아니라, 작업 Issue만 따로 센 3자리 순번을 사용한다.
+- `[작업유형]`은 변경되는 공식 문서의 대표 문서 ID prefix 하나를 사용한다.
+- 여러 유형이 함께 변경되면 작업 목적을 가장 잘 나타내는 대표 유형 하나만 제목에 표시하고, 나머지 유형은 Issue 본문 작업 범위에 남긴다.
+- 이슈명은 한글을 사용할 수 있으며, 단어 구분은 `_`를 사용한다.
+- Issue 생성 전에는 순번을 확정할 수 없으므로, Issue 생성 직후 기존 작업 Issue 목록을 기준으로 순번을 확정하고 제목을 보정한다.
+- 문서 prefix가 아직 정해지지 않은 작업은 가장 가까운 작업 유형을 사용하고, 필요하면 Issue 본문에 판단 근거를 남긴다.
+- GitHub Issue URL의 `#번호`는 링크와 자동 종료에만 사용하고, 제목의 Issue 순번으로 사용하지 않는다.
 
 ## 7. 본문 구조
 
@@ -312,3 +321,7 @@ Backlog가 해결되면 다음 항목을 확인한다.
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력을 작업 도구, AI 모델, 에이전트 역할로 분리 |
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태와 처리시점 기준 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태 정의에 한글명 병기 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 형식과 생성 후 제목 보정 기준 추가 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 번호를 GitHub 채번이 아닌 Issue 전용 순번으로 변경 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목의 ISS prefix 제거 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 작업유형을 대표 prefix 하나로 단순화 |
