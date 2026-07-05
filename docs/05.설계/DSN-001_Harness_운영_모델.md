@@ -27,6 +27,7 @@ Harness의 책임은 다음과 같다.
 |---|---|
 | 작업 접수 | Issue 또는 Backlog 후보를 작업 후보로 읽는다. |
 | 범위 확인 | 목적, 작업 범위, 제외 범위, 완료 조건이 충분한지 확인한다. |
+| Work Order 작성 | 모호한 요청을 실행 가능한 작업 지시서 초안으로 변환한다. |
 | 작업 분석 | 작업 성격, 난이도, 위험도, 권한 영향을 판단한다. |
 | 작업 분해 | 작업 분량을 분석하고 필요한 경우 세부 태스크로 나눈다. |
 | 역할 연결 | 필요한 에이전트 역할과 AI 개발자 후보를 선정한다. |
@@ -61,6 +62,7 @@ Harness의 출력은 다음과 같다.
 | 출력 | 설명 |
 |---|---|
 | 작업 판단 | 작업 성격, 난이도, 위험도, 필요한 에이전트 역할에 대한 판단이다. |
+| Work Order | 목적, 배경, 수행 범위, 제외 범위, 산출물, 완료 조건, 검증 방법, 중단 조건을 포함한 작업 지시서다. |
 | 세부 태스크 목록 | 작업 분량이 큰 경우 분리된 하위 작업과 우선순위다. |
 | 작업 지시 | AI 개발자가 수행해야 할 범위, 제외 범위, 완료 조건이다. |
 | 실행 상태 | 작업이 어느 상태에 있는지 나타내는 상태값이다. |
@@ -78,7 +80,9 @@ Harness는 다음 상태를 사용한다.
 | 상태 | 한글명 | 의미 | 다음 상태 |
 |---|---|---|---|
 | Candidate | 후보 | Issue 또는 Backlog에서 작업 후보를 읽은 상태 | Intake, Backlog |
-| Intake | 접수 | 목적, 범위, 완료 조건을 확인하는 상태 | Classify, Need Clarification, Backlog |
+| Intake | 접수 | 목적, 범위, 완료 조건을 확인하는 상태 | Work Order Build, Need Clarification, Backlog |
+| Work Order Build | 작업지시서 작성 | 사용자 요청을 실행 가능한 Work Order 초안으로 작성하는 상태 | Work Order Review, Need Clarification, Backlog |
+| Work Order Review | 작업지시서 검토 | Work Order 초안을 피드백받고 실행 가능한지 확인하는 상태 | Classify, Work Order Build, Need Approval, Backlog |
 | Classify | 분류 | 작업 성격, 난이도, 위험도, 권한 영향을 분석하는 상태 | Decompose, Gate Check, Need Approval, Backlog |
 | Decompose | 분해 | 작업 분량을 분석하고 필요한 경우 세부 태스크로 분리하는 상태 | Gate Check, Backlog |
 | Gate Check | 게이트 확인 | 권한 게이트와 Token Budget을 확인하는 상태 | Assign, Need Approval, Stop |
@@ -105,6 +109,10 @@ Candidate(후보)
 ↓
 Intake(접수)
 ↓
+Work Order Build(작업지시서 작성)
+↓
+Work Order Review(작업지시서 검토)
+↓
 Classify(분류)
 ↓
 Decompose(분해)
@@ -128,6 +136,8 @@ Closed(종료)
 
 기본 흐름은 Issue Loop를 기준으로 한다. PR 생성 이후에는 PR Review Loop로 연결할 수 있고, 작업 결과와 후속 판단은 Report Loop로 정리한다.
 
+사용자 요청이 `이거 해줘` 수준으로 등록된 경우 Harness는 바로 실행하지 않는다. 먼저 Work Order 초안을 작성하고, 필요한 경우 피드백을 받아 수정한 뒤 실행 가능한 Work Order가 되었을 때 다음 상태로 진행한다.
+
 ## 7. 판단 지점
 
 Harness는 다음 판단 지점을 가진다.
@@ -135,12 +145,14 @@ Harness는 다음 판단 지점을 가진다.
 | 판단 지점 | 질문 | 결과 |
 |---|---|---|
 | 범위 충분성 | Issue에 목적, 범위, 제외 범위, 완료 조건이 있는가? | 진행, 보완 요청, Backlog |
+| Work Order 충분성 | 실행 전에 목적, 범위, 제외 범위, 산출물, 완료 조건, 검증 방법, 중단 조건이 정리되었는가? | 진행, 보완 요청, Backlog |
 | 작업 성격 | 문서, 정책, 설계, 구현, 리뷰, QA, 운영, 리서치 중 무엇인가? | 역할 후보 선정 |
 | 난이도 | 단독 수행, 분할 수행, 검토 보강 중 무엇이 필요한가? | 배치 방식 결정 |
 | 작업 분량 | 하나의 Issue 안에서 수행 가능한가, 세부 태스크로 나누어야 하는가? | 단일 작업, 세부 태스크 분리, Backlog |
 | 위험도 | Secret, 배포, main 영향, 외부 시스템 쓰기, 정책 변경이 있는가? | 권한 게이트 또는 승인 요청 |
 | Token 가용성 | 현재 작업을 지속할 수 있는 Token Budget이 있는가? | 진행, 축소, 분할, 중단 |
 | Capability 적합성 | 후보 AI 개발자가 작업을 수행하기 적합한가? | Assign 또는 후보 재선정 |
+| 승인 경계 | 사람 승인이 필요한 항목이 있는가? | Approval Pass, Need Approval |
 | 검증 충분성 | 완료 조건과 검증 근거가 충분한가? | 수용 후보, 리뷰, QA, 승인 요청 |
 | 후속 흐름 | 결과를 PR, Report, Backlog 중 어디로 연결할 것인가? | 후속 상태 결정 |
 
@@ -155,6 +167,7 @@ Harness는 다음 조건에서 작업을 중단하거나 보류한다.
 | Issue 범위가 불명확함 | 보완 요청 또는 Backlog 정리 |
 | 제외 범위가 없음 | 보완 요청 |
 | 완료 조건이 없음 | 보완 요청 |
+| Work Order가 실행 가능한 수준이 아님 | Work Order Build 재진입 또는 보완 요청 |
 | 작업 분량이 현재 Issue 범위를 초과함 | 세부 태스크 분리 또는 Backlog |
 | 권한 게이트를 통과하지 못함 | 사람 승인 요청 또는 Stop |
 | Secret, 배포, main 영향 작업이 승인되지 않음 | Stop 또는 Need Approval |
@@ -184,6 +197,8 @@ Harness는 다음 조건에서 작업을 중단하거나 보류한다.
 
 승인 조건이 발생하면 Harness는 판단 근거와 선택지를 정리해 사람 리드에게 전달한다. Harness는 승인 없이 고위험 작업을 진행하지 않는다.
 
+승인 조건에 해당하지 않는 경우에도 Harness는 승인 항목을 확인했다는 기록을 남긴다. 이를 Approval Pass로 부르며, 실행 전에 사람 승인 필수 조건이 없었다는 근거를 남기는 용도로 사용한다.
+
 ## 10. Low-risk 수용 후보
 
 Harness가 Low-risk 결과를 수용 후보로 판단하려면 다음 조건을 모두 만족해야 한다.
@@ -197,7 +212,27 @@ Harness가 Low-risk 결과를 수용 후보로 판단하려면 다음 조건을 
 
 이 조건은 최종 수용 정책이 아니라 Harness 운영 모델의 최소 수용 후보 조건이다. 세부 수용 기준은 별도 점검 또는 정책 문서에서 정의한다.
 
-## 11. Backlog 연결
+## 11. Work Order 최소 형식
+
+Harness가 실행 전에 작성해야 하는 Work Order의 최소 형식은 다음과 같다.
+
+| 항목 | 필수 여부 | 설명 |
+|---|---|---|
+| 목적 | 필수 | 작업으로 달성하려는 결과다. |
+| 배경 | 필수 | 왜 이 작업이 필요한지와 관련 문서다. |
+| 수행 범위 | 필수 | 이번 작업에서 수행할 항목이다. |
+| 제외 범위 | 필수 | 이번 작업에서 하지 않을 항목이다. |
+| 입력 문서 | 필수 | 작업 기준으로 읽어야 하는 문서다. |
+| 기대 산출물 | 필수 | 생성하거나 수정해야 하는 결과물이다. |
+| 세부 태스크 | 조건부 | 작업 분량이 큰 경우 분리한 하위 작업이다. |
+| 완료 조건 | 필수 | 작업 종료를 판단하는 기준이다. |
+| 검증 방법 | 필수 | 완료 조건을 확인하는 방법이다. |
+| 중단 조건 | 필수 | 작업을 멈추고 확인해야 하는 조건이다. |
+| 승인 확인 | 필수 | Approval Pass 또는 Need Approval 판단이다. |
+
+Work Order는 한 번에 확정되지 않아도 된다. Harness는 Work Order Build와 Work Order Review를 반복해 실행 가능한 수준이 된 뒤 Assign 상태로 진행한다.
+
+## 12. Backlog 연결
 
 Harness는 다음 경우 Backlog로 연결한다.
 
@@ -209,7 +244,7 @@ Harness는 다음 경우 Backlog로 연결한다.
 
 Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해결 인덱스](../15.로그/backlog/README.md)에서 관리한다.
 
-## 12. 관련 문서
+## 13. 관련 문서
 
 - [PRJ-001 서비스 정체성](../01.프로젝트/PRJ-001_서비스_정체성.md)
 - [PRJ-002 비전과 목표](../01.프로젝트/PRJ-002_비전과_목표.md)
@@ -232,3 +267,4 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Create | Harness 입력, 출력, 상태 전이, 중단 조건, 승인 조건 최초 작성 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 분량 분석과 세부 태스크 분리 상태 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 상태 모델에 한글명 병기 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Work Order 작성과 승인 확인 흐름 추가 |

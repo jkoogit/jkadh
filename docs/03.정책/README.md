@@ -10,6 +10,7 @@
 | POL-002 | [Issue 작성정책](./POL-002_Issue_작성정책.md) | Draft |
 | POL-003 | [Git 작업관리방안](./POL-003_Git_작업관리방안.md) | Draft |
 | POL-004 | [CTO 대화운영규칙](./POL-004_CTO_대화운영규칙.md) | Draft |
+| POL-005 | [사람 승인 경계 정책](./POL-005_사람_승인_경계_정책.md) | Draft |
 
 ## 정책 후보
 
