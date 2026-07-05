@@ -253,6 +253,7 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 - [RDM-001 단계적 추진방향](../07.로드맵/RDM-001_단계적_추진방향.md)
 - [ORG-001 에이전트 공통역할](../02.조직/ORG-001_에이전트_공통역할.md)
 - [ORG-002 에이전트 역할별 운영규칙](../02.조직/ORG-002_에이전트_역할별_운영규칙.md)
+- [ORG-003 Agent Capability Matrix](../02.조직/ORG-003_Agent_Capability_Matrix.md)
 - [POL-001 문서관리방안](../03.정책/POL-001_문서관리방안.md)
 - [POL-002 Issue 작성정책](../03.정책/POL-002_Issue_작성정책.md)
 - [POL-003 Git 작업관리방안](../03.정책/POL-003_Git_작업관리방안.md)
@@ -272,3 +273,4 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Work Order 작성과 승인 확인 흐름 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 수용 후보 세부 기준 문서 연결 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 상태 전이값과 승인 상태 참조에 한글명 병기 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Agent Capability Matrix 문서 연결 |
