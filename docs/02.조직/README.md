@@ -8,12 +8,13 @@
 |---|---|---|
 | ORG-001 | [에이전트 공통역할](./ORG-001_에이전트_공통역할.md) | Draft |
 | ORG-002 | [에이전트 역할별 운영규칙](./ORG-002_에이전트_역할별_운영규칙.md) | Draft |
+| ORG-003 | [Agent Capability Matrix](./ORG-003_Agent_Capability_Matrix.md) | Draft |
 
 ## 포함 예정 문서
 
 | 문서 ID | 문서명 | 상태 |
 |---|---|---|
-| ORG-003 | AI 개발팀 구조 | Planned |
+| ORG-004 | AI 개발팀 구조 | Planned |
 
 ## 역할 후보
 

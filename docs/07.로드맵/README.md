@@ -6,7 +6,7 @@
 
 | 문서 ID | 문서명 | 상태 |
 |---|---|---|
-| RDM-001 | 전체 로드맵 | Planned |
+| RDM-001 | [단계적 추진방향](./RDM-001_단계적_추진방향.md) | Draft |
 | RDM-002 | Phase 1 | Planned |
 | RDM-003 | Phase 2 | Planned |
 | RDM-004 | Phase 3 | Planned |
