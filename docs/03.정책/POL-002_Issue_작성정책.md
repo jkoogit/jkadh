@@ -249,6 +249,17 @@ new task_ branch
 
 현재 Issue의 완료 조건을 먼저 끝내는 것을 우선한다.
 
+Issue 진행 중 현재 태스크와 맞지 않는 주제가 들어오면 즉시 작업하지 않고 먼저 분류한다.
+
+| 분류 | 판단 기준 | 처리 |
+|---|---|---|
+| 현재 Issue 반영 | 현재 Issue의 목적, 완료 조건, 변경 파일과 직접 연결된다. | 현재 태스크 범위에 포함하고 필요하면 Issue명 또는 완료 조건을 현행화한다. |
+| `[번외]` 기록 | 현재 Issue와 맥락은 있지만 주 완료 조건은 아니다. 작고 되돌리기 쉬우며 현재 흐름을 크게 방해하지 않는다. | 같은 Issue 안에서 `[번외]`로 표시하고 PR 본문 또는 Report에 별도 항목으로 남긴다. |
+| Backlog 분리 | 주제가 독립적이거나, 판단이 필요하거나, 작업량이 크거나, 현재 완료 조건을 흔든다. | Backlog로 등록하고 다음 Issue 선정 시 검토한다. |
+| 새 Issue 후보 | 즉시 또는 가까운 시점에 별도 업무 단위로 진행할 가치가 크다. | Backlog에 새 Issue 후보로 남기거나 사람 리드에게 Issue 승격을 제안한다. |
+
+`[번외]`로 처리한 항목도 작업이 커지거나 정책, 설계, 승인 경계에 영향을 주면 Backlog 또는 새 Issue 후보로 전환한다.
+
 미해결 Backlog는 [Backlog 미해결 인덱스](../15.로그/backlog/README.md)에서 관리한다.
 
 Backlog 개별 파일은 생성일 기준 날짜 폴더에 고정하며, 해결되더라도 파일을 이동하지 않는다.
@@ -321,6 +332,7 @@ Backlog가 해결되면 다음 항목을 확인한다.
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력을 작업 도구, AI 모델, 에이전트 역할로 분리 |
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태와 처리시점 기준 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태 정의에 한글명 병기 |
+| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | 진행 중 끼어든 주제의 현재 Issue, 번외, Backlog 분류 기준 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 형식과 생성 후 제목 보정 기준 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 번호를 GitHub 채번이 아닌 Issue 전용 순번으로 변경 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목의 ISS prefix 제거 |

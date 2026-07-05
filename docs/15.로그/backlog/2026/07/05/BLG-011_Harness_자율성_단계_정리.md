@@ -1,7 +1,7 @@
 # BLG-011 Harness 자율성 단계 정리
 
 > Backlog ID: BLG-011
-> 상태: Deferred
+> 상태: Resolved
 > 유형: ROADMAP
 > 생성일: 2026-07-05
 > 처리시점: 정기 점검 시
@@ -16,9 +16,9 @@
 > - [OPS-001 Token 운영](../../../../../10.운영/OPS-001_Token_운영.md)
 > - [POL-005 사람 승인 경계 정책](../../../../../03.정책/POL-005_사람_승인_경계_정책.md)
 > - [RDM-001 단계적 추진방향](../../../../../07.로드맵/RDM-001_단계적_추진방향.md)
-> 연결 Issue: None
-> 연결 PR: None
-> 해결 문서: None
+> 연결 Issue: [#14](https://github.com/jkoogit/jkadh/issues/14)
+> 연결 PR: [#15](https://github.com/jkoogit/jkadh/pull/15)
+> 해결 문서: [RDM-001 단계적 추진방향](../../../../../07.로드맵/RDM-001_단계적_추진방향.md)
 
 ## 1. 내용
 
@@ -46,3 +46,5 @@ PRJ-002는 Phase 1부터 Phase 3까지의 현실 목표를 우선 정의했다. 
 | 2026-07-05 | Deferred | [RDM-001](../../../../../07.로드맵/RDM-001_단계적_추진방향.md) | 단계적 추진방향 작성 후에도 선행 운영/정책 문서가 필요하므로 Deferred 유지 |
 | 2026-07-05 | Deferred | [DSN-001](../../../../../05.설계/DSN-001_Harness_운영_모델.md), [POL-005](../../../../../03.정책/POL-005_사람_승인_경계_정책.md) | 운영 모델과 승인 경계 정책은 작성됐지만 Token 관리 정책이 남아 Deferred 유지 |
 | 2026-07-05 | Deferred | [OPS-001](../../../../../10.운영/OPS-001_Token_운영.md) | Token 운영 정책 초안 작성으로 선행 의존 일부 해소. 자율성 단계는 별도 로드맵 정리 시 재검토 |
+| 2026-07-05 | Issue Linked | [#14](https://github.com/jkoogit/jkadh/issues/14) | 세션 기준 업무 Issue로 승격해 Harness 자율성 단계 정리 작업 시작 |
+| 2026-07-06 | Resolved | [RDM-001](../../../../../07.로드맵/RDM-001_단계적_추진방향.md) | Harness 자율성 단계, 승인 경계, Token 제약, 수용 후보, 운영 데이터 API 판단 근거를 로드맵에 반영 |
