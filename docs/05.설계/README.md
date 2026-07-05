@@ -6,7 +6,7 @@
 
 | 문서 ID | 문서명 | 상태 |
 |---|---|---|
-| DSN-001 | Architecture | Planned |
+| DSN-001 | [Harness 운영 모델](./DSN-001_Harness_운영_모델.md) | Draft |
 | DSN-002 | API 설계 | Planned |
 | DSN-003 | DB 설계 | Planned |
 | DSN-004 | Prompt 설계 | Planned |
