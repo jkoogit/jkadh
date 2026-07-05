@@ -6,7 +6,7 @@
 
 | 문서 ID | 문서명 | 상태 |
 |---|---|---|
-| PRJ-001 | 프로젝트 헌장 | Planned |
+| PRJ-001 | [서비스 정체성](./PRJ-001_서비스_정체성.md) | Draft |
 | PRJ-002 | 비전과 목표 | Planned |
 | PRJ-003 | 서비스 정의 | Planned |
 | PRJ-004 | 프로젝트 범위 | Planned |
