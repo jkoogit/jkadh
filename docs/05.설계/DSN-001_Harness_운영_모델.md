@@ -251,6 +251,7 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 - [PRJ-003 서비스 정의](../01.프로젝트/PRJ-003_서비스_정의.md)
 - [PRJ-004 프로젝트 범위 원칙](../01.프로젝트/PRJ-004_프로젝트_범위_원칙.md)
 - [RDM-001 단계적 추진방향](../07.로드맵/RDM-001_단계적_추진방향.md)
+- [DSN-002 Harness 운영데이터 API 서비스](./DSN-002_Harness_운영데이터_API_서비스.md)
 - [ORG-001 에이전트 공통역할](../02.조직/ORG-001_에이전트_공통역할.md)
 - [ORG-002 에이전트 역할별 운영규칙](../02.조직/ORG-002_에이전트_역할별_운영규칙.md)
 - [ORG-003 Agent Capability Matrix](../02.조직/ORG-003_Agent_Capability_Matrix.md)
@@ -278,3 +279,4 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Agent Capability Matrix 문서 연결 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Token 운영 정책 문서 연결 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 수정결과 개선사항 분석 기준 문서 연결 |
+| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 운영데이터 API 서비스 문서 연결 |

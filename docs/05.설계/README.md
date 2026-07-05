@@ -2,12 +2,17 @@
 
 이 폴더는 JKADH의 구조, 모델, Capability, 기술 설계를 관리한다.
 
-## 포함 예정 문서
+## 포함 문서
 
 | 문서 ID | 문서명 | 상태 |
 |---|---|---|
 | DSN-001 | [Harness 운영 모델](./DSN-001_Harness_운영_모델.md) | Draft |
-| DSN-002 | API 설계 | Planned |
+| DSN-002 | [Harness 운영데이터 API 서비스](./DSN-002_Harness_운영데이터_API_서비스.md) | Draft |
+
+## 포함 예정 문서
+
+| 문서 ID | 문서명 | 상태 |
+|---|---|---|
 | DSN-003 | DB 설계 | Planned |
 | DSN-004 | Prompt 설계 | Planned |
 | DSN-005 | MCP 설계 | Planned |

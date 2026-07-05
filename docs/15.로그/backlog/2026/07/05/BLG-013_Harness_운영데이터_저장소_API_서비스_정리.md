@@ -1,7 +1,7 @@
 # BLG-013 Harness 운영데이터 저장소 API 서비스 정리
 
 > Backlog ID: BLG-013
-> 상태: Ready
+> 상태: Resolved
 > 유형: DESIGN
 > 생성일: 2026-07-05
 > 처리시점: 다음 Issue 선정 시
@@ -14,9 +14,10 @@
 > - [DSN-001 Harness 운영 모델](../../../../../05.설계/DSN-001_Harness_운영_모델.md)
 > - [ORG-003 Agent Capability Matrix](../../../../../02.조직/ORG-003_Agent_Capability_Matrix.md)
 > - [POL-006 근거 기반 결과 수용 기준](../../../../../03.정책/POL-006_근거_기반_결과_수용_기준.md)
+> - [DSN-002 Harness 운영데이터 API 서비스](../../../../../05.설계/DSN-002_Harness_운영데이터_API_서비스.md)
 > 연결 Issue: None
 > 연결 PR: None
-> 해결 문서: None
+> 해결 문서: [DSN-002 Harness 운영데이터 API 서비스](../../../../../05.설계/DSN-002_Harness_운영데이터_API_서비스.md)
 
 ## 1. 내용
 
@@ -56,3 +57,4 @@ Token 운영을 정책으로만 다루면 실제 작업 지속, 중단, 분할, 
 | 날짜 | 상태 | 연결 대상 | 내용 |
 |---|---|---|---|
 | 2026-07-05 | Ready | [OPS-001](../../../../../10.운영/OPS-001_Token_운영.md), [DSN-001](../../../../../05.설계/DSN-001_Harness_운영_모델.md), [ORG-003](../../../../../02.조직/ORG-003_Agent_Capability_Matrix.md) | Token 운영을 내부 운영데이터 저장소와 API 서비스 설계 후보로 확장 |
+| 2026-07-05 | Resolved | [DSN-002](../../../../../05.설계/DSN-002_Harness_운영데이터_API_서비스.md) | 운영데이터 최소 엔티티, API 후보, 스킬 후보, 초기 구현 범위 초안 작성 |
