@@ -327,7 +327,20 @@ PR merge to dev
 새 task branch 생성
 ```
 
-## 12. 관련 문서
+## 12. 논스톱 진행 기준
+
+`#태스크시작`, `#태스크정리`, `#태스크승급`, `#세션정리`는 서로 다른 통제 지점을 가진다. 기본 운영에서는 각 단계 사이에 확인 지점을 둔다.
+
+사용자가 네 단계의 연속 실행과 중간 확인 생략을 명시한 경우에만 논스톱으로 진행할 수 있다. 이때도 다음 조건이 발생하면 즉시 중단하고 확인한다.
+
+- 작업 범위가 바뀌거나 새 판단 지점이 생긴 경우
+- 검증 실패, 충돌, 권한 문제, 원격 브랜치 불일치가 발생한 경우
+- Issue 종료, PR 병합, 승급, 회고 방식처럼 되돌리기 어려운 결정이 새로 필요한 경우
+- 세션 정리 체크리스트 중 저장소나 Issue에 고정해야 할 산출물이 빠진 경우
+
+논스톱 진행을 완료한 뒤에는 `dev`, `stg`, `main` 일치 여부, 작업트리 상태, Issue와 Backlog 현행화, 회고 또는 종료 기록 위치를 보고한다.
+
+## 13. 관련 문서
 
 - [POL-001 문서관리방안](./POL-001_문서관리방안.md)
 - [POL-002 Issue 작성정책](./POL-002_Issue_작성정책.md)
@@ -354,3 +367,4 @@ PR merge to dev
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크시작 없이 진행된 작업의 태스크정리 사후 보정 항목 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 절차 기반 처리와 Issue 번호 기반 채번 충돌 방지 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 사용자 주문과 표준 절차 충돌 시 확인 기준 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 논스톱 진행 조건과 중단 기준 추가 |
