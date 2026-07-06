@@ -238,6 +238,8 @@ Issue 기반 작업 중 새 Backlog를 만들 때는 `BLG-{GitHub Issue 번호}-
 
 사후 보정은 누락을 회복하기 위한 보조장치다. 큰 작업을 Issue 없이 계속 진행하기 위한 예외로 사용하지 않는다.
 
+사용자 주문과 표준 절차가 충돌하거나 해석이 갈리는 경우에는 실행 전에 확인한다. 특히 PR Ready 전환, `dev` 머지, `stg` 또는 `main` 승급처럼 저장소 상태를 바꾸는 단계는 명시 태그나 명확한 승인 없이 자연어 주문만으로 실행하지 않는다.
+
 ## 9. Review 반영 규칙
 
 Review는 작업 품질을 높이기 위한 통제 지점이다.
@@ -351,3 +353,4 @@ PR merge to dev
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 정리 PR의 Issue 자동 종료 키워드 사용 제한 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크시작 없이 진행된 작업의 태스크정리 사후 보정 항목 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 절차 기반 처리와 Issue 번호 기반 채번 충돌 방지 기준 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 사용자 주문과 표준 절차 충돌 시 확인 기준 추가 |
