@@ -70,6 +70,8 @@ task_claude/003-design-service-flow
 - `{scope}`는 작업 내용을 짧은 영문 kebab-case로 작성한다.
 - 하나의 작업 브랜치는 하나의 Issue에 대응한다. PR은 같은 Issue 안에서 검토 가능한 정리 단위로 여러 개 연결할 수 있다.
 - 세션명 번호, Issue 번호 또는 작업 순서, 브랜치명의 `{seq}`가 어긋나면 작업 시작 전에 보정한다.
+- 동시작업 충돌이 예상되면 GitHub Issue 번호를 기준 식별자로 우선 사용한다.
+- 같은 Issue 안에서 여러 에이전트가 동시에 작업하면 `{scope}`를 다르게 잡고, PR 본문에 같은 Issue의 병렬 작업임을 명시한다.
 
 ## 5. Issue와 Branch 연결
 
@@ -98,6 +100,7 @@ merge to dev
 - 완료 조건이 모두 충족되어 해당 PR 머지만으로 Issue를 닫아도 되는 경우에만 `Closes #이슈번호` 같은 자동 종료 키워드를 사용한다.
 - 작업 중 나온 새 아이디어는 Backlog로 분리한다.
 - Issue가 없는 상태에서 PR을 먼저 만들지 않는다.
+- 결론이 이미 확정된 사안이라도 바로 실행하지 않고 처리 경로를 먼저 확인한다.
 
 작업 시작 전 Issue가 없으면 다음 순서로 진행한다.
 
@@ -196,6 +199,8 @@ PR은 검토 가능한 상태가 되면 Ready 상태로 전환한다.
 | 문서 탈고 | 공식 문서 변경이 있다면 문맥, 충돌, 중복, 쉬운 표현을 점검했는가? |
 | 번외/백로그 판단 | 진행 중 끼어든 주제를 현재 Issue, `[번외]`, Backlog, 새 Issue 후보 중 하나로 분류했는가? |
 | 후속 항목 | 현재 범위 밖 논점이 Backlog로 분리되었는가? |
+| 확정 사안 처리 | 결론이 명확한 사안도 현재 PR 포함, 별도 PR, Backlog, 새 Issue 후보 중 처리 경로를 확인했는가? |
+| 채번 충돌 | Backlog ID, PR 순번, 브랜치명, 세션명이 같은 Issue 안에서 충돌하지 않는가? |
 
 확인 항목 중 하나라도 맞지 않으면 PR 생성 또는 머지 전에 먼저 보정한다.
 
@@ -220,6 +225,8 @@ PR은 검토 가능한 상태가 되면 Ready 상태로 전환한다.
 - 곧바로 별도 업무 단위로 진행할 가치가 크면 새 Issue 후보로 제안한다.
 
 이 판단은 PR 본문 또는 Report에 짧게 남겨 다음 세션에서 맥락이 끊기지 않게 한다.
+
+Issue 기반 작업 중 새 Backlog를 만들 때는 `BLG-{GitHub Issue 번호}-{Issue 안 Backlog 순번}` 형식을 우선 사용한다. 기존 `BLG-###` 형식은 소급 변경하지 않으며, 현재 작업에서 직접 수정하지 않는 과거 링크는 유지한다.
 
 `#태스크시작` 없이 작업이 먼저 진행된 경우 `#태스크정리`에서 다음 항목을 사후 보정한다.
 
@@ -329,17 +336,18 @@ PR merge to dev
 
 ## 작업 이력
 
-| 작업일시 | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
-|---|---|---|---|---|---|---|
-| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Create | Git 작업관리방안 최초 작성 |
-| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크승급 태그와 자동/확인/검증 승급 흐름 추가 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 등록 선행과 태스크 정리 전 세션명, 브랜치명, PR 연결 확인 절차 추가 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 제목 형식과 PR 생성 후 제목 보정 기준 추가 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 제목 번호를 GitHub 채번이 아닌 Issue/PR 전용 순번으로 변경 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 제목을 이슈번호와 이슈내PR번호 형식으로 변경 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 제목의 이슈내PR번호 표기를 괄호 형식으로 변경 |
-| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 정리 전 공식 문서 탈고 확인 절차 추가 |
-| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 정리 시 끼어든 주제의 번외 또는 Backlog 분류 제안 기준 추가 |
-| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | 같은 Issue 안의 여러 PR 연결 기준과 세션 마무리 시 세션명 현행화 확인 항목 추가 |
-| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 정리 PR의 Issue 자동 종료 키워드 사용 제한 기준 추가 |
-| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크시작 없이 진행된 작업의 태스크정리 사후 보정 항목 추가 |
+| 작업일시 | 관련 Issue | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
+|---|---|---|---|---|---|---|---|
+| 2026-07-04 | - | Codex | GPT-5 | CTO | jk / Codex | Create | Git 작업관리방안 최초 작성 |
+| 2026-07-04 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크승급 태그와 자동/확인/검증 승급 흐름 추가 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 등록 선행과 태스크 정리 전 세션명, 브랜치명, PR 연결 확인 절차 추가 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 제목 형식과 PR 생성 후 제목 보정 기준 추가 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 제목 번호를 GitHub 채번이 아닌 Issue/PR 전용 순번으로 변경 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 제목을 이슈번호와 이슈내PR번호 형식으로 변경 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 제목의 이슈내PR번호 표기를 괄호 형식으로 변경 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 정리 전 공식 문서 탈고 확인 절차 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 정리 시 끼어든 주제의 번외 또는 Backlog 분류 제안 기준 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 같은 Issue 안의 여러 PR 연결 기준과 세션 마무리 시 세션명 현행화 확인 항목 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 정리 PR의 Issue 자동 종료 키워드 사용 제한 기준 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크시작 없이 진행된 작업의 태스크정리 사후 보정 항목 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 절차 기반 처리와 Issue 번호 기반 채번 충돌 방지 기준 추가 |

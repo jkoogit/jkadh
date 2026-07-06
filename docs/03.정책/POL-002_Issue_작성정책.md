@@ -268,6 +268,27 @@ Issue 진행 중 현재 태스크와 맞지 않는 주제가 들어오면 즉시
 
 Backlog 개별 파일은 생성일 기준 날짜 폴더에 고정하며, 해결되더라도 파일을 이동하지 않는다.
 
+Issue 기반 작업 중 새로 생성하는 Backlog ID는 다음 형식을 우선 사용한다.
+
+```text
+BLG-{GitHub Issue 번호}-{Issue 안 Backlog 순번}
+```
+
+예:
+
+```text
+BLG-019-001_에이전트_동시작업_채번충돌_방지.md
+BLG-019-002_확정사안_절차기반_처리기준_정리.md
+```
+
+규칙은 다음과 같다.
+
+- `{GitHub Issue 번호}`는 GitHub URL의 `#번호`를 3자리로 적는다.
+- `{Issue 안 Backlog 순번}`은 같은 Issue에서 발생한 Backlog만 따로 센 3자리 순번이다.
+- Backlog Header에는 `연결 Issue`를 링크로 유지한다. ID는 정렬과 충돌 방지 기준이고, `연결 Issue`는 추적 링크다.
+- Issue 없이 생성된 기존 `BLG-###` 형식은 소급 변경하지 않는다.
+- 기존 Backlog 파일명과 링크는 안정성을 위해 유지하고, 새 형식은 신규 Backlog부터 적용한다.
+
 Backlog 상태는 다음 값을 사용한다.
 
 | 상태 | 한글명 | 의미 |
@@ -316,6 +337,7 @@ Backlog가 해결되면 다음 항목을 확인한다.
 - `backlog/README.md`의 미해결 목록에서 제거한다.
 - 출처 문서 또는 관련 문서의 내용이 더 이상 맞지 않으면 해당 문서를 함께 수정한다.
 - 출처 문서 또는 관련 문서가 여전히 유효하면 수정하지 않는다.
+- Backlog에는 별도 작업 이력을 두지 않고 연결 이력에 상태 변경, 관련 Issue, 관련 PR, 해결 문서를 기록한다.
 
 ## 11. 관련 문서
 
@@ -325,21 +347,22 @@ Backlog가 해결되면 다음 항목을 확인한다.
 
 ## 작업 이력
 
-| 작업일시 | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
-|---|---|---|---|---|---|---|
-| 2026-07-04 | Codex | GPT-5 | 문서 작성 | jk / Codex | Create | Issue 작성정책 최초 작성 |
-| 2026-07-04 | Codex | GPT-5 | 문서 작성 | jk / Codex | Revise | Backlog 미해결 인덱스와 날짜 기반 파일 관리 원칙 반영 |
-| 2026-07-04 | Codex | GPT-5 | 문서 작성 | jk / Codex | Revise | Backlog 해결 시 출처/관련 문서 조건부 현행화 규칙 추가 |
-| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 에이전트 역할체계 문서명 반영 |
-| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력에 AI 모델 정보를 포함하도록 수정 |
-| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력 Header를 에이전트와 역할 중심으로 단순화 |
-| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력을 작업 도구, AI 모델, 에이전트 역할로 분리 |
-| 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태와 처리시점 기준 추가 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태 정의에 한글명 병기 |
-| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | 진행 중 끼어든 주제의 현재 Issue, 번외, Backlog 분류 기준 추가 |
-| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue를 세션 또는 업무 단위로 운용하고 회고를 현재 Issue의 마무리 태스크로 처리하는 기준 추가 |
-| 2026-07-06 | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 본문 기본 연결 문구를 Related로 바꾸고 Issue 자동 종료 키워드를 예외 기준으로 제한 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 형식과 생성 후 제목 보정 기준 추가 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 번호를 GitHub 채번이 아닌 Issue 전용 순번으로 변경 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목의 ISS prefix 제거 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 작업유형을 대표 prefix 하나로 단순화 |
+| 작업일시 | 관련 Issue | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
+|---|---|---|---|---|---|---|---|
+| 2026-07-04 | - | Codex | GPT-5 | 문서 작성 | jk / Codex | Create | Issue 작성정책 최초 작성 |
+| 2026-07-04 | - | Codex | GPT-5 | 문서 작성 | jk / Codex | Revise | Backlog 미해결 인덱스와 날짜 기반 파일 관리 원칙 반영 |
+| 2026-07-04 | - | Codex | GPT-5 | 문서 작성 | jk / Codex | Revise | Backlog 해결 시 출처/관련 문서 조건부 현행화 규칙 추가 |
+| 2026-07-04 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 에이전트 역할체계 문서명 반영 |
+| 2026-07-04 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력에 AI 모델 정보를 포함하도록 수정 |
+| 2026-07-04 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력 Header를 에이전트와 역할 중심으로 단순화 |
+| 2026-07-04 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력을 작업 도구, AI 모델, 에이전트 역할로 분리 |
+| 2026-07-04 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태와 처리시점 기준 추가 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 상태 정의에 한글명 병기 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 진행 중 끼어든 주제의 현재 Issue, 번외, Backlog 분류 기준 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue를 세션 또는 업무 단위로 운용하고 회고를 현재 Issue의 마무리 태스크로 처리하는 기준 추가 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | PR 본문 기본 연결 문구를 Related로 바꾸고 Issue 자동 종료 키워드를 예외 기준으로 제한 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 형식과 생성 후 제목 보정 기준 추가 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 번호를 GitHub 채번이 아닌 Issue 전용 순번으로 변경 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목의 ISS prefix 제거 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 작업유형을 대표 prefix 하나로 단순화 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 번호 기반 Backlog ID와 연결 이력 기준 추가 |
