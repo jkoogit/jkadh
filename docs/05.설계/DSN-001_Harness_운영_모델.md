@@ -30,6 +30,7 @@ Harness의 책임은 다음과 같다.
 | Work Order 작성 | 모호한 요청을 실행 가능한 작업 지시서 초안으로 변환한다. |
 | 작업 분석 | 작업 성격, 난이도, 위험도, 권한 영향을 판단한다. |
 | 작업 분해 | 작업 분량을 분석하고 필요한 경우 세부 태스크로 나눈다. |
+| 처리 경로 분류 | 결론이 확정된 사안도 현재 Issue 반영, PR 분리, Backlog, 새 Issue 후보 중 어디로 연결할지 판단한다. |
 | 역할 연결 | 필요한 에이전트 역할과 AI 개발자 후보를 선정한다. |
 | 실행 제약 확인 | 권한 게이트와 Token Budget을 확인한다. |
 | 작업 지시 | 선택된 AI 개발자에게 범위와 완료 조건을 전달한다. |
@@ -153,6 +154,8 @@ Harness는 다음 판단 지점을 가진다.
 | Token 가용성 | 현재 작업을 지속할 수 있는 Token Budget이 있는가? | 진행, 축소, 분할, 중단 |
 | Capability 적합성 | 후보 AI 개발자가 작업을 수행하기 적합한가? | Assign 또는 후보 재선정 |
 | 승인 경계 | 사람 승인이 필요한 항목이 있는가? | Approval Pass(승인 통과), Need Approval(승인 필요) |
+| 절차 투명성 | 결론이 확정된 사안도 영향 범위와 처리 경로를 확인했는가? | 현재 Issue 반영, PR 분리, Backlog, 새 Issue 후보 |
+| 채번 충돌 | Issue, PR, Backlog, 브랜치, 세션명 식별자가 동시작업에서 충돌하지 않는가? | Issue 번호 기준 정렬, scope 분리, 보정 요청 |
 | 검증 충분성 | 완료 조건과 검증 근거가 충분한가? | 수용 후보, 리뷰, QA, 승인 요청 |
 | 후속 흐름 | 결과를 PR, Report, Backlog 중 어디로 연결할 것인가? | 후속 상태 결정 |
 
@@ -176,6 +179,7 @@ Harness는 다음 조건에서 작업을 중단하거나 보류한다.
 | 산출물이 누락됨 | Review(리뷰) 또는 Execute(실행) 재진입 |
 | 검증 근거가 부족함 | Review(리뷰), QA, Need Approval(승인 필요) |
 | 작업 중 새 요구가 범위를 바꿈 | Backlog 분리 |
+| 식별자 충돌 가능성이 확인됨 | Issue 번호 기준으로 보정하거나 scope 분리 |
 
 중단은 실패가 아니라 운영 통제 지점이다. 중단된 작업은 Report 또는 Backlog로 연결되어야 한다.
 
@@ -268,15 +272,16 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 
 ## 작업 이력
 
-| 작업일시 | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
-|---|---|---|---|---|---|---|
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Create | Harness 입력, 출력, 상태 전이, 중단 조건, 승인 조건 최초 작성 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 분량 분석과 세부 태스크 분리 상태 추가 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 상태 모델에 한글명 병기 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Work Order 작성과 승인 확인 흐름 추가 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 수용 후보 세부 기준 문서 연결 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 상태 전이값과 승인 상태 참조에 한글명 병기 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Agent Capability Matrix 문서 연결 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Token 운영 정책 문서 연결 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | 수정결과 개선사항 분석 기준 문서 연결 |
-| 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 운영데이터 API 서비스 문서 연결 |
+| 작업일시 | 관련 Issue | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
+|---|---|---|---|---|---|---|---|
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Create | Harness 입력, 출력, 상태 전이, 중단 조건, 승인 조건 최초 작성 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 분량 분석과 세부 태스크 분리 상태 추가 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 상태 모델에 한글명 병기 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Work Order 작성과 승인 확인 흐름 추가 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 수용 후보 세부 기준 문서 연결 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 상태 전이값과 승인 상태 참조에 한글명 병기 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Agent Capability Matrix 문서 연결 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Token 운영 정책 문서 연결 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | 수정결과 개선사항 분석 기준 문서 연결 |
+| 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 운영데이터 API 서비스 문서 연결 |
+| 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 절차 투명성과 Issue 기준 채번 충돌 판단 지점 추가 |
