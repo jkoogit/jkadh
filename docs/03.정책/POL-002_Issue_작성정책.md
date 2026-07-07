@@ -9,7 +9,7 @@
 > 작성 에이전트: Codex  
 > 기준 브랜치: dev  
 > 작업 브랜치: task_codex/001-docs-governance-foundation  
-> 최종 수정일: 2026-07-05
+> 최종 수정일: 2026-07-08
 
 ## 1. 목적
 
@@ -266,6 +266,8 @@ Issue 진행 중 현재 태스크와 맞지 않는 주제가 들어오면 즉시
 
 미해결 Backlog는 [Backlog 미해결 인덱스](../15.로그/backlog/README.md)에서 관리한다.
 
+신규 Backlog 파일을 작성할 때는 [TPL-002 Backlog 템플릿](../08.템플릿/TPL-002_Backlog_템플릿.md)을 따른다. Backlog는 공식 문서와 달리 작업 이력을 두지 않고 연결 이력으로 상태 변경과 해결 근거를 추적한다.
+
 Backlog 개별 파일은 생성일 기준 날짜 폴더에 고정하며, 해결되더라도 파일을 이동하지 않는다.
 
 Issue 기반 작업 중 새로 생성하는 Backlog ID는 다음 형식을 우선 사용한다.
@@ -342,6 +344,8 @@ Backlog가 해결되면 다음 항목을 확인한다.
 ## 11. 관련 문서
 
 - [POL-001 문서관리방안](./POL-001_문서관리방안.md)
+- [TPL-002 Backlog 템플릿](../08.템플릿/TPL-002_Backlog_템플릿.md)
+- [Backlog 미해결 인덱스](../15.로그/backlog/README.md)
 
 ---
 
@@ -366,3 +370,4 @@ Backlog가 해결되면 다음 항목을 확인한다.
 | 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목의 ISS prefix 제거 |
 | 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 작업유형을 대표 prefix 하나로 단순화 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 번호 기반 Backlog ID와 연결 이력 기준 추가 |
+| 2026-07-08 | [#33](https://github.com/jkoogit/jkadh/issues/33) | Codex | GPT-5 | CTO | jk / Codex | Revise | 신규 Backlog 작성 기준을 Backlog 전용 템플릿으로 연결 |
