@@ -1,0 +1,45 @@
+# BLG-022 Backlog 문서 템플릿 분리 검토
+
+> Backlog ID: BLG-022
+> 상태: Deferred
+> 유형: TEMPLATE
+> 생성일: 2026-07-07
+> 처리시점: 정기 점검 시
+> 우선순위: Low
+> 의존 대상: 공식 문서 템플릿 적용 결과 확인
+> 출처: BLG-005 1차 검토
+> 출처 문서:
+> - [BLG-005 공식문서 템플릿 검토](../04/BLG-005_공식문서_템플릿_검토.md)
+> 관련 문서:
+> - [Backlog 미해결 인덱스](../../../README.md)
+> - [POL-001 문서관리방안](../../../../../03.정책/POL-001_문서관리방안.md)
+> 연결 Issue: [#28](https://github.com/jkoogit/jkadh/issues/28)
+> 연결 PR: [#27](https://github.com/jkoogit/jkadh/pull/27)
+> 해결 문서: None
+
+## 1. 내용
+
+Backlog 문서 전용 템플릿이 필요한지 검토한다.
+
+## 2. 발생 배경
+
+Backlog 문서는 공식 문서와 달리 `Backlog ID`, 처리시점, 우선순위, 연결 Issue/PR, 해결 문서, 연결 이력을 중심으로 관리한다.
+
+공식 문서 템플릿을 그대로 적용하면 Backlog의 추적 구조가 흐려질 수 있다.
+
+## 3. 기대 효과
+
+- Backlog 문서와 공식 문서의 역할 차이를 유지한다.
+- Backlog 작성 시 필요한 필드와 연결 이력을 일관되게 관리한다.
+
+## 4. 처리 기준
+
+- 공식 문서 Header 전체 적용 결과를 확인한 뒤 검토한다.
+- 필요하면 `TPL-002_Backlog_문서_템플릿.md`를 작성한다.
+- 미해결 인덱스와 개별 Backlog 파일의 역할을 분리한다.
+
+## 5. 연결 이력
+
+| 날짜 | 상태 | 연결 대상 | 내용 |
+|---|---|---|---|
+| 2026-07-07 | Deferred | [#28](https://github.com/jkoogit/jkadh/issues/28), [#27](https://github.com/jkoogit/jkadh/pull/27), [BLG-005](../04/BLG-005_공식문서_템플릿_검토.md) | Backlog 문서는 공식 문서와 구조가 달라 별도 템플릿 검토 항목으로 분리 |
