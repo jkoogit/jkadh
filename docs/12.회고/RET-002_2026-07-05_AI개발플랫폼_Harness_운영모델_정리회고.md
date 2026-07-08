@@ -1,18 +1,20 @@
 # RET-002 2026-07-05 AI개발플랫폼 Harness 운영모델 정리회고
 
-> 문서 ID: RET-002
-> 문서 유형: 회고
-> 상태: Draft
-> 성숙도: Candidate
-> 버전: v0.1
-> 소유자: jk
-> 작성 에이전트: CTO 에이전트
-> 기준 브랜치: main
-> 작업 브랜치: task_codex/002-session-retrospective
-> 관련 Issue: [#10](https://github.com/jkoogit/jkadh/issues/10)
-> 관련 작업 Issue: [#9](https://github.com/jkoogit/jkadh/issues/9)
-> 관련 작업 PR: [#8](https://github.com/jkoogit/jkadh/pull/8)
-> 최종 수정일: 2026-07-07
+| 항목 | 값 |
+|---|---|
+| 문서 ID | RET-002 |
+| 문서 유형 | 회고 |
+| 상태 | Draft |
+| 성숙도 | Candidate |
+| 버전 | v0.1 |
+| 소유자 | jk |
+| 작성 에이전트 | CTO 에이전트 |
+| 기준 브랜치 | main |
+| 작업 브랜치 | task_codex/002-session-retrospective |
+| 관련 Issue | [#10](https://github.com/jkoogit/jkadh/issues/10) |
+| 관련 작업 Issue | [#9](https://github.com/jkoogit/jkadh/issues/9) |
+| 관련 작업 PR | [#8](https://github.com/jkoogit/jkadh/pull/8) |
+| 최종 수정일 | 2026-07-07 |
 
 ## 1. 목적
 
@@ -125,3 +127,4 @@ BLG-011 Harness 자율성 단계 정리를 진행하자.
 |---|---|---|---|---|---|---|
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Create | AI개발플랫폼 Harness 운영모델 정리 세션 회고 작성 |
 | 2026-07-07 | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 본문형 적용을 위해 적용 범위 섹션과 번호 구조 정리 |
+| 2026-07-08 | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |

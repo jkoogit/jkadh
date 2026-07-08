@@ -1,15 +1,17 @@
 # DSN-001 Harness 운영 모델
 
-> 문서 ID: DSN-001
-> 문서 유형: 설계
-> 상태: Draft
-> 성숙도: Candidate
-> 버전: v0.1
-> 소유자: jk
-> 작성 에이전트: CTO 에이전트
-> 기준 브랜치: main
-> 작업 브랜치: task_codex/007-vision-goals
-> 최종 수정일: 2026-07-07
+| 항목 | 값 |
+|---|---|
+| 문서 ID | DSN-001 |
+| 문서 유형 | 설계 |
+| 상태 | Draft |
+| 성숙도 | Candidate |
+| 버전 | v0.1 |
+| 소유자 | jk |
+| 작성 에이전트 | CTO 에이전트 |
+| 기준 브랜치 | main |
+| 작업 브랜치 | task_codex/007-vision-goals |
+| 최종 수정일 | 2026-07-07 |
 
 ## 1. 목적
 
@@ -292,3 +294,4 @@ Backlog는 공식 문서 본문에서 중복 관리하지 않고 [Backlog 미해
 | 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 운영데이터 API 서비스 문서 연결 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 절차 투명성과 Issue 기준 채번 충돌 판단 지점 추가 |
 | 2026-07-07 | [#29](https://github.com/jkoogit/jkadh/issues/29) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 본문형 적용을 위해 적용 범위 섹션과 번호 구조 정리 |
+| 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |

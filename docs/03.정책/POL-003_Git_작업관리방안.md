@@ -1,15 +1,17 @@
 # POL-003 Git 작업관리방안
 
-> 문서 ID: POL-003
-> 문서 유형: 정책
-> 상태: Draft
-> 성숙도: Candidate
-> 버전: v0.1
-> 소유자: jk
-> 작성 에이전트: CTO 에이전트
-> 기준 브랜치: dev
-> 작업 브랜치: task_codex/002-agent-operation-rules
-> 최종 수정일: 2026-07-04
+| 항목 | 값 |
+|---|---|
+| 문서 ID | POL-003 |
+| 문서 유형 | 정책 |
+| 상태 | Draft |
+| 성숙도 | Candidate |
+| 버전 | v0.1 |
+| 소유자 | jk |
+| 작성 에이전트 | CTO 에이전트 |
+| 기준 브랜치 | dev |
+| 작업 브랜치 | task_codex/002-agent-operation-rules |
+| 최종 수정일 | 2026-07-04 |
 
 ## 1. 목적
 
@@ -390,3 +392,4 @@ Git 상태를 바꾸는 작업은 실행 전 게이트를 통과해야 한다.
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 논스톱 진행 조건과 중단 기준 추가 |
 | 2026-07-08 | [#37](https://github.com/jkoogit/jkadh/issues/37) | Codex | GPT-5 | CTO | jk / Codex | Revise | Git 상태 변경별 실행 게이트와 중단 조건 추가 |
 | 2026-07-08 | [#39](https://github.com/jkoogit/jkadh/issues/39) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크승급과 Issue 종료를 독립 절차로 분리 |
+| 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |

@@ -1,15 +1,17 @@
 # POL-002 Issue 작성정책
 
-> 문서 ID: POL-002  
-> 문서 유형: 정책  
-> 상태: Draft  
-> 성숙도: Candidate  
-> 버전: v0.1  
-> 소유자: jk  
-> 작성 에이전트: Codex  
-> 기준 브랜치: dev  
-> 작업 브랜치: task_codex/001-docs-governance-foundation  
-> 최종 수정일: 2026-07-08
+| 항목 | 값 |
+|---|---|
+| 문서 ID | POL-002 |
+| 문서 유형 | 정책 |
+| 상태 | Draft |
+| 성숙도 | Candidate |
+| 버전 | v0.1 |
+| 소유자 | jk |
+| 작성 에이전트 | Codex |
+| 기준 브랜치 | dev |
+| 작업 브랜치 | task_codex/001-docs-governance-foundation |
+| 최종 수정일 | 2026-07-08 |
 
 ## 1. 목적
 
@@ -371,3 +373,4 @@ Backlog가 해결되면 다음 항목을 확인한다.
 | 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 작업유형을 대표 prefix 하나로 단순화 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 번호 기반 Backlog ID와 연결 이력 기준 추가 |
 | 2026-07-08 | [#33](https://github.com/jkoogit/jkadh/issues/33) | Codex | GPT-5 | CTO | jk / Codex | Revise | 신규 Backlog 작성 기준을 Backlog 전용 템플릿으로 연결 |
+| 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |

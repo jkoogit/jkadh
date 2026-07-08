@@ -1,15 +1,17 @@
 # STA-002 AI 시작가이드
 
-> 문서 ID: STA-002
-> 문서 유형: 시작
-> 상태: Draft
-> 성숙도: Candidate
-> 버전: v0.1
-> 소유자: jk
-> 작성 에이전트: CTO 에이전트
-> 기준 브랜치: dev
-> 작업 브랜치: task_codex/002-agent-operation-rules
-> 최종 수정일: 2026-07-05
+| 항목 | 값 |
+|---|---|
+| 문서 ID | STA-002 |
+| 문서 유형 | 시작 |
+| 상태 | Draft |
+| 성숙도 | Candidate |
+| 버전 | v0.1 |
+| 소유자 | jk |
+| 작성 에이전트 | CTO 에이전트 |
+| 기준 브랜치 | dev |
+| 작업 브랜치 | task_codex/002-agent-operation-rules |
+| 최종 수정일 | 2026-07-05 |
 
 ## 1. 목적
 
@@ -302,3 +304,4 @@ AI는 태그를 인식하면 다음 순서로 진행한다.
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 최신 회고 기반 초기 세션명 현행화와 다음 세션 시작 프롬프트 기준 추가 |
 | 2026-07-08 | [#37](https://github.com/jkoogit/jkadh/issues/37) | Codex | GPT-5 | CTO | jk / Codex | Revise | 모든 세션 태그의 실행 게이트와 보고 기준 추가 |
 | 2026-07-08 | [#39](https://github.com/jkoogit/jkadh/issues/39) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크승급 시 Issue를 종료하지 않는 기준 추가 |
+| 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |
