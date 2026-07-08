@@ -340,7 +340,23 @@ PR merge to dev
 
 논스톱 진행을 완료한 뒤에는 `dev`, `stg`, `main` 일치 여부, 작업트리 상태, Issue와 Backlog 현행화, 회고 또는 종료 기록 위치를 보고한다.
 
-## 13. 관련 문서
+## 13. Git 상태 변경 실행 게이트
+
+Git 상태를 바꾸는 작업은 실행 전 게이트를 통과해야 한다.
+
+| 상태 변경 | 필수 실행조건 | 중단 조건 |
+|---|---|---|
+| 작업 브랜치 생성 | 관련 Issue 또는 Issue 생성 생략 사유가 명확함, 기준 브랜치가 최신 `main`임, 작업트리가 충돌 상태가 아님 | Issue 없는 큰 작업, 기준 브랜치 불명확, 미확인 로컬 변경이 작업 파일과 충돌 |
+| PR 생성 | 관련 Issue 존재, PR 범위와 제외 범위 명확, 검증 방법 명확, Backlog 연결 이력 확인 | Issue 없이 PR 생성, 자동 종료 키워드 오용 가능성, 후속 Backlog 연결 누락 |
+| PR Ready 전환 | 완료 조건 충족, 검증 결과 존재, 문서 탈고 또는 리뷰 확인 완료 | 렌더링/리뷰/검증 조건 미충족, PR 목적과 변경 범위 불일치 |
+| `dev` 머지 | PR 검토 가능 상태, 머지 대상과 기준 브랜치 확인, 충돌 없음 | 리뷰 미완료, 실패한 검증 존재, 관련 Issue 종료 조건 불명확 |
+| `stg` 승급 | `dev` 반영 커밋 확인, 검증 방법 존재, 실패 기록 위치 명확 | 검증 방법 없음, 원격 브랜치 불일치, 충돌 또는 권한 문제 |
+| `main` 승급 | `stg` 검증 통과, `main` 영향 승인 범위 명확, `dev/stg/main` 일치 확인 가능 | 검증 미완료, 사용자 확인이 필요한 상태, 실패 기록 미작성 |
+| Issue 종료 | 완료 조건 충족, 관련 PR 반영 완료, 남은 Backlog 분리 | 완료 조건 일부 미충족, 후속 작업 미분류, 자동 종료 여부 불명확 |
+
+게이트를 통과하지 못하면 상태 변경을 실행하지 않는다. 이미 일부 단계가 진행된 경우에는 [STA-002 AI 시작가이드](../00.시작/STA-002_AI_시작가이드.md)의 태그 실행 게이트와 [POL-005 사람 승인 경계 정책](./POL-005_사람_승인_경계_정책.md)의 전환 기준에 따라 사후 보정, `Need Approval`, `Stop`, `Backlog` 중 하나로 정리한다.
+
+## 14. 관련 문서
 
 - [POL-001 문서관리방안](./POL-001_문서관리방안.md)
 - [POL-002 Issue 작성정책](./POL-002_Issue_작성정책.md)
@@ -368,3 +384,4 @@ PR merge to dev
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 절차 기반 처리와 Issue 번호 기반 채번 충돌 방지 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 사용자 주문과 표준 절차 충돌 시 확인 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 논스톱 진행 조건과 중단 기준 추가 |
+| 2026-07-08 | [#37](https://github.com/jkoogit/jkadh/issues/37) | Codex | GPT-5 | CTO | jk / Codex | Revise | Git 상태 변경별 실행 게이트와 중단 조건 추가 |
