@@ -243,6 +243,8 @@ new task_ branch
 
 작업 중 새 아이디어가 나오면 현재 Issue에 즉시 추가하지 않는다.
 
+Backlog는 진행 중인 태스크가 있을 때, 그 태스크의 완료 조건과 분리해야 하는 번외 또는 후속 주제를 보관하는 경로다. 진행 중인 태스크가 없는 상태의 새 작업 주제는 Backlog가 아니라 `#태스크시작` 대상으로 처리한다.
+
 새 아이디어는 다음 중 하나로 분리한다.
 
 | 분류 | 의미 |
@@ -374,3 +376,4 @@ Backlog가 해결되면 다음 항목을 확인한다.
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 번호 기반 Backlog ID와 연결 이력 기준 추가 |
 | 2026-07-08 | [#33](https://github.com/jkoogit/jkadh/issues/33) | Codex | GPT-5 | CTO | jk / Codex | Revise | 신규 Backlog 작성 기준을 Backlog 전용 템플릿으로 연결 |
 | 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |
+| 2026-07-08 | [#46](https://github.com/jkoogit/jkadh/issues/46) | Codex | GPT-5 | CTO | jk / Codex | Revise | Backlog 생성 조건을 진행 중 태스크의 번외 또는 후속 주제로 한정 |
