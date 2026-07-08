@@ -1,15 +1,17 @@
 # OPS-001 Token 운영
 
-> 문서 ID: OPS-001
-> 문서 유형: 운영
-> 상태: Draft
-> 성숙도: Candidate
-> 버전: v0.1
-> 소유자: jk
-> 작성 에이전트: CTO 에이전트
-> 기준 브랜치: main
-> 작업 브랜치: task_codex/007-vision-goals
-> 최종 수정일: 2026-07-05
+| 항목 | 값 |
+|---|---|
+| 문서 ID | OPS-001 |
+| 문서 유형 | 운영 |
+| 상태 | Draft |
+| 성숙도 | Candidate |
+| 버전 | v0.1 |
+| 소유자 | jk |
+| 작성 에이전트 | CTO 에이전트 |
+| 기준 브랜치 | main |
+| 작업 브랜치 | task_codex/007-vision-goals |
+| 최종 수정일 | 2026-07-05 |
 
 ## 1. 목적
 
@@ -199,3 +201,4 @@ Token 운영은 속도보다 통제 가능성을 우선한다.
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Create | Token Budget과 Token Usage 기반 운영 판단 기준 최초 작성 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Token Usage를 내부 운영데이터로 축적하는 방향 추가 |
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Revise | Harness 운영데이터 API 서비스 문서 연결 |
+| 2026-07-08 | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |

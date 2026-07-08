@@ -1,15 +1,17 @@
 # ORG-003 Agent Capability Matrix
 
-> 문서 ID: ORG-003
-> 문서 유형: 조직
-> 상태: Draft
-> 성숙도: Candidate
-> 버전: v0.1
-> 소유자: jk
-> 작성 에이전트: CTO 에이전트
-> 기준 브랜치: main
-> 작업 브랜치: task_codex/007-vision-goals
-> 최종 수정일: 2026-07-05
+| 항목 | 값 |
+|---|---|
+| 문서 ID | ORG-003 |
+| 문서 유형 | 조직 |
+| 상태 | Draft |
+| 성숙도 | Candidate |
+| 버전 | v0.1 |
+| 소유자 | jk |
+| 작성 에이전트 | CTO 에이전트 |
+| 기준 브랜치 | main |
+| 작업 브랜치 | task_codex/007-vision-goals |
+| 최종 수정일 | 2026-07-05 |
 
 ## 1. 목적
 
@@ -169,3 +171,4 @@ Work Order에는 역할 배치 판단을 다음 형식으로 남긴다.
 | 작업일시 | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
 |---|---|---|---|---|---|---|
 | 2026-07-05 | Codex | GPT-5 | CTO | jk / Codex | Create | 역할별 Capability Matrix와 Harness 배치 판단 기준 최초 작성 |
+| 2026-07-08 | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |

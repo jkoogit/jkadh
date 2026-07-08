@@ -1,15 +1,17 @@
 # POL-004 CTO 대화운영규칙
 
-> 문서 ID: POL-004
-> 문서 유형: 정책
-> 상태: Draft
-> 성숙도: Candidate
-> 버전: v0.1
-> 소유자: jk
-> 작성 에이전트: CTO 에이전트
-> 기준 브랜치: dev
-> 작업 브랜치: task_codex/002-agent-operation-rules
-> 최종 수정일: 2026-07-04
+| 항목 | 값 |
+|---|---|
+| 문서 ID | POL-004 |
+| 문서 유형 | 정책 |
+| 상태 | Draft |
+| 성숙도 | Candidate |
+| 버전 | v0.1 |
+| 소유자 | jk |
+| 작성 에이전트 | CTO 에이전트 |
+| 기준 브랜치 | dev |
+| 작업 브랜치 | task_codex/002-agent-operation-rules |
+| 최종 수정일 | 2026-07-04 |
 
 ## 1. 목적
 
@@ -154,3 +156,4 @@ CTO 에이전트는 다음을 하지 않는다.
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력에 AI 모델 정보를 포함하도록 수정 |
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력 Header를 에이전트와 역할 중심으로 단순화 |
 | 2026-07-04 | Codex | GPT-5 | CTO | jk / Codex | Revise | 작업 이력을 작업 도구, AI 모델, 에이전트 역할로 분리 |
+| 2026-07-08 | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |
