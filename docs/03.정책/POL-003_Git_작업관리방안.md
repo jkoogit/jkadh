@@ -226,6 +226,8 @@ PR은 검토 가능한 상태가 되면 Ready 상태로 전환한다.
 - 작업량이 크거나 독립 판단이 필요하면 Backlog로 분리한다.
 - 곧바로 별도 업무 단위로 진행할 가치가 크면 새 Issue 후보로 제안한다.
 
+Backlog 분리는 진행 중인 태스크에서 범위 밖 주제가 들어온 경우에만 사용한다. 진행 중인 태스크가 없으면 새 주제를 Backlog로 만들지 않고 `#태스크시작`을 먼저 수행한다.
+
 이 판단은 PR 본문 또는 Report에 짧게 남겨 다음 세션에서 맥락이 끊기지 않게 한다.
 
 Issue 기반 작업 중 새 Backlog를 만들 때는 `BLG-{GitHub Issue 번호}-{Issue 안 Backlog 순번}` 형식을 우선 사용한다. 기존 `BLG-###` 형식은 소급 변경하지 않으며, 현재 작업에서 직접 수정하지 않는 과거 링크는 유지한다.
@@ -241,6 +243,8 @@ Issue 기반 작업 중 새 Backlog를 만들 때는 `BLG-{GitHub Issue 번호}-
 사후 보정은 누락을 회복하기 위한 보조장치다. 큰 작업을 Issue 없이 계속 진행하기 위한 예외로 사용하지 않는다.
 
 사용자 주문과 표준 절차가 충돌하거나 해석이 갈리는 경우에는 실행 전에 확인한다. 특히 PR Ready 전환, `dev` 머지, `stg` 또는 `main` 승급처럼 저장소 상태를 바꾸는 단계는 명시 태그나 명확한 승인 없이 자연어 주문만으로 실행하지 않는다.
+
+단순 주문을 작업으로 처리하려는 순간 관련 Issue, 작업 브랜치, PR, 승급 조건이 없거나 맞지 않으면 즉시 실행하지 않고 절차 상태와 진행 승인을 먼저 확인한다.
 
 ## 9. Review 반영 규칙
 
@@ -393,3 +397,4 @@ Git 상태를 바꾸는 작업은 실행 전 게이트를 통과해야 한다.
 | 2026-07-08 | [#37](https://github.com/jkoogit/jkadh/issues/37) | Codex | GPT-5 | CTO | jk / Codex | Revise | Git 상태 변경별 실행 게이트와 중단 조건 추가 |
 | 2026-07-08 | [#39](https://github.com/jkoogit/jkadh/issues/39) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크승급과 Issue 종료를 독립 절차로 분리 |
 | 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |
+| 2026-07-08 | [#46](https://github.com/jkoogit/jkadh/issues/46) | Codex | GPT-5 | CTO | jk / Codex | Revise | 단순 주문의 절차 확인 기준과 Backlog 분리 조건 보강 |
