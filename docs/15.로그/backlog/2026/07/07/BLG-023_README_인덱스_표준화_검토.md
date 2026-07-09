@@ -1,7 +1,7 @@
 # BLG-023 README 인덱스 표준화 검토
 
 > Backlog ID: BLG-023
-> 상태: Deferred
+> 상태: Resolved
 > 유형: DOC
 > 생성일: 2026-07-07
 > 처리시점: 정기 점검 시
@@ -13,9 +13,9 @@
 > 관련 문서:
 > - [JKADH 문서 인덱스](../../../../../README.md)
 > - [POL-001 문서관리방안](../../../../../03.정책/POL-001_문서관리방안.md)
-> 연결 Issue: [#28](https://github.com/jkoogit/jkadh/issues/28)
-> 연결 PR: [#27](https://github.com/jkoogit/jkadh/pull/27)
-> 해결 문서: None
+> 연결 Issue: [#50](https://github.com/jkoogit/jkadh/issues/50)
+> 연결 PR: [#51](https://github.com/jkoogit/jkadh/pull/51)
+> 해결 문서: [docs/README.md](../../../../../README.md), 폴더별 README, [POL-001 문서관리방안](../../../../../03.정책/POL-001_문서관리방안.md)
 
 ## 목차
 
@@ -51,5 +51,6 @@
 | 날짜 | 상태 | 연결 대상 | 내용 |
 |---|---|---|---|
 | 2026-07-07 | Deferred | [#28](https://github.com/jkoogit/jkadh/issues/28), [#27](https://github.com/jkoogit/jkadh/pull/27), [BLG-005](../04/BLG-005_공식문서_템플릿_검토.md) | README는 공식 문서 본문과 다른 인덱스 성격이 있어 별도 표준화 검토 항목으로 분리 |
+| 2026-07-09 | Resolved | [#50](https://github.com/jkoogit/jkadh/issues/50), [#51](https://github.com/jkoogit/jkadh/pull/51) | 폴더별 README가 인덱스 구조와 목차 기준을 이미 충족하고, 루트 `docs/README.md`는 최상위 인덱스로 별도 유지하는 것이 적절해 추가 표준화 작업 없이 정리 |
 
 [목차로 이동](#목차)
