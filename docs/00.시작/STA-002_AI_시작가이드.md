@@ -295,7 +295,7 @@ AI는 태그를 인식하면 다음 순서로 진행한다.
 |---|---|
 | `#세션시작` | 원격 브랜치 일치 여부, 현재 브랜치, 작업트리, 최신 회고, 미해결 Backlog, 추천 다음 작업 |
 | `#태스크시작` | 관련 Issue, 작업 브랜치, 작업 범위, 제외 범위, 완료 조건, 검증 방법, 승인 상태 |
-| `#태스크정리` | 변경 요약, 검증 결과, PR 상태, Issue 완료 조건 충족 여부, 후속 Backlog |
+| `#태스크정리` | 변경 요약, 검증 결과, PR 상태, `dev` 머지 완료 여부, 미완료 시 보류 사유와 다음 조치, Issue 완료 조건 충족 여부, 후속 Backlog |
 | `#태스크승급` | 승급 대상 커밋, `stg` 검증 결과, `main` 반영 결과, `dev/stg/main` 일치 여부, Issue 미종료 상태 |
 | `#태스크승급-확인` | `stg` 반영 결과, 기본 검증 결과, `main` 승급 전 확인 요청 |
 | `#태스크승급-검증` | `stg` 반영 결과, 검증 대기 항목, 실패 시 기록 위치 |
@@ -349,3 +349,4 @@ AI는 태그를 인식하면 다음 순서로 진행한다.
 | 2026-07-08 | [#46](https://github.com/jkoogit/jkadh/issues/46) | Codex | GPT-5 | CTO | jk / Codex | Revise | 단순 주문의 절차 확인 기준과 Backlog 생성 조건 보강 |
 | 2026-07-09 | [#48](https://github.com/jkoogit/jkadh/issues/48) | Codex | GPT-5 | CTO | jk / Codex | Revise | 세션시작과 태스크시작 단계의 작업 브랜치 생성 제한 및 링크형 목차 적용 |
 | 2026-07-09 | [#48](https://github.com/jkoogit/jkadh/issues/48) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태그 실행 중 필수 실행조건 보정 시 즉시 보고하는 절차 추가 |
+| 2026-07-09 | [#48](https://github.com/jkoogit/jkadh/issues/48) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크정리 보고에 dev 머지 완료 여부와 보류 사유 기준 추가 |

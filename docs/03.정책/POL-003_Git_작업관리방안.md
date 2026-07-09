@@ -224,6 +224,8 @@ PR은 검토 가능한 상태가 되면 Ready 상태로 전환한다.
 
 확인 항목 중 하나라도 맞지 않으면 PR 생성 또는 머지 전에 먼저 보정한다.
 
+`#태스크정리` 결과는 `완료` 또는 `보류`로 보고한다. `완료`는 검증 결과가 있고 PR 생성 또는 현행화가 끝났으며 `dev` 머지까지 완료했거나 머지가 불필요한 사유를 명시한 상태다. `보류`는 PR은 생성 또는 현행화했지만 Ready 전환, 리뷰, 검증, 충돌, 권한, 승인 같은 게이트 때문에 `dev` 머지를 진행하지 못한 상태다. 보류로 보고할 때는 남은 게이트와 다음 필요 조치를 함께 남긴다.
+
 공식 문서 작업이 포함된 경우 `#태스크정리` 전에 탈고 작업을 수행한다. 탈고는 새 내용을 더 추가하기 위한 단계가 아니라, 이미 반영한 문서가 읽기 쉽고 다른 문서와 충돌하지 않는지 확인하는 품질 게이트다.
 
 문서 탈고에서는 다음 항목을 확인한다.
@@ -418,3 +420,4 @@ Git 상태를 바꾸는 작업은 실행 전 게이트를 통과해야 한다.
 | 2026-07-08 | [#39](https://github.com/jkoogit/jkadh/issues/39) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크승급과 Issue 종료를 독립 절차로 분리 |
 | 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |
 | 2026-07-08 | [#46](https://github.com/jkoogit/jkadh/issues/46) | Codex | GPT-5 | CTO | jk / Codex | Revise | 단순 주문의 절차 확인 기준과 Backlog 분리 조건 보강 |
+| 2026-07-09 | [#48](https://github.com/jkoogit/jkadh/issues/48) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크정리 결과를 완료 또는 보류로 보고하는 기준 추가 |
