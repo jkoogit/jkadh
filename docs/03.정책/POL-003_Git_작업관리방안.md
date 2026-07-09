@@ -374,6 +374,8 @@ PR merge to dev
 
 Git 상태를 바꾸는 작업은 실행 전 게이트를 통과해야 한다.
 
+Git 상태 변경 게이트를 확인하기 전에 [STA-002 AI 시작가이드](../00.시작/STA-002_AI_시작가이드.md)의 요청 해석 게이트를 먼저 적용한다. 자연어 요청이 질문/검토 또는 작업 방향 합의에 해당하면 Git 상태를 변경하지 않고 필요한 태그와 승인 범위를 먼저 보고한다.
+
 | 상태 변경 | 필수 실행조건 | 중단 조건 |
 |---|---|---|
 | 작업 브랜치 생성 | 관련 Issue 또는 Issue 생성 생략 사유가 명확함, 기준 브랜치가 최신 `main`임, 작업트리가 충돌 상태가 아님 | Issue 없는 큰 작업, 기준 브랜치 불명확, 미확인 로컬 변경이 작업 파일과 충돌 |
@@ -421,3 +423,4 @@ Git 상태를 바꾸는 작업은 실행 전 게이트를 통과해야 한다.
 | 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |
 | 2026-07-08 | [#46](https://github.com/jkoogit/jkadh/issues/46) | Codex | GPT-5 | CTO | jk / Codex | Revise | 단순 주문의 절차 확인 기준과 Backlog 분리 조건 보강 |
 | 2026-07-09 | [#48](https://github.com/jkoogit/jkadh/issues/48) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크정리 결과를 완료 또는 보류로 보고하는 기준 추가 |
+| 2026-07-10 | [#52](https://github.com/jkoogit/jkadh/issues/52) | Codex | GPT-5 | CTO | jk / Codex | Revise | Git 상태 변경 전 STA-002 요청 해석 게이트를 먼저 적용하는 기준 추가 |
