@@ -22,7 +22,8 @@
 - [5. 검토했으나 제외한 방향](#5-검토했으나-제외한-방향)
 - [6. 결정되지 않은 항목](#6-결정되지-않은-항목)
 - [7. 다음 판단 기준](#7-다음-판단-기준)
-- [8. 관련 문서](#8-관련-문서)
+- [8. 검토 자료](#8-검토-자료)
+- [9. 관련 문서](#9-관련-문서)
 - [작업 이력](#작업-이력)
 
 ## 1. 목적
@@ -108,7 +109,24 @@
 
 이 질문에 답하기 위해 다음 실행 후보는 Harness CLI 전체 구현이 아니라, 샘플 서비스 프로젝트를 대상으로 한 작은 한 턴 사이클 검증이다.
 
-## 8. 관련 문서
+## 8. 검토 자료
+
+다음 자료는 Harness 운영구조와 에이전트 오케스트레이션 방향을 검토할 때 참고한 공식 문서다.
+
+| 자료 | 검토에 사용한 관점 |
+|---|---|
+| [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/) | Agent, tool, handoff, guardrail, session, tracing 같은 에이전트 실행 런타임 구성 요소 |
+| [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) | AI 앱과 외부 도구, 데이터, 워크플로를 연결하는 표준 인터페이스 |
+| [Google Agent Development Kit](https://adk.dev/) | Agent, graph workflow, multi-agent workflow, runtime, API server, resume agent 같은 에이전트 앱 개발 구조 |
+| [Vercel AI SDK](https://ai-sdk.dev/docs/introduction) | 서비스 프로젝트 안에서 모델, 도구, 스트리밍 UI를 통합하는 애플리케이션 개발 방식 |
+| [LangGraph](https://docs.langchain.com/oss/python/langgraph/overview) | 장기 실행, 상태 유지, persistence, human-in-the-loop 기반 에이전트 워크플로 |
+| [Microsoft AutoGen AgentChat](https://microsoft.github.io/autogen/stable/user-guide/agentchat-user-guide/index.html) | agents, teams, human-in-the-loop, state, observability를 갖춘 다중 에이전트 구조 |
+| [CrewAI Crews](https://docs.crewai.com/en/concepts/crews) | agents, tasks, crews, flows, tools, memory, checkpointing, tracing 개념 |
+| [Temporal TypeScript SDK](https://docs.temporal.io/develop/typescript) | 장기 실행, 재시도, workflow/activity/worker 기반의 내구성 있는 실행 제어 |
+
+이 자료들은 즉시 채택 대상을 정하기 위한 것이 아니라, JKADH가 직접 실행 엔진을 만들지 않고 먼저 Control Plane을 구축해야 한다는 판단의 비교 근거로 사용했다.
+
+## 9. 관련 문서
 
 - [DSN-003 AI개발플랫폼 멀티레포 Harness 운영구조](../05.설계/DSN-003_AI개발플랫폼_멀티레포_Harness_운영구조.md)
 - [DSN-002 Harness 운영데이터 API 서비스](../05.설계/DSN-002_Harness_운영데이터_API_서비스.md)
