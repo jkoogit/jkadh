@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseHarnessTag } from "../src/tags/tag-adapter.ts";
+import { parseHarnessTag, parseHarnessTagCommand } from "../src/tags/tag-adapter.ts";
 
 test("tag adapter maps Korean session and task tags to flow ids", () => {
   assert.equal(parseHarnessTag("#세션시작"), "session_start");
@@ -15,6 +15,22 @@ test("tag adapter ignores surrounding text and whitespace", () => {
   assert.equal(parseHarnessTag("  #세션시작\n원격 브랜치 확인"), "session_start");
 });
 
+test("tag adapter marks default tags as execute mode", () => {
+  assert.deepEqual(parseHarnessTagCommand("#태스크정리"), {
+    tag: "task_close",
+    mode: "execute"
+  });
+});
+
+test("tag adapter marks dot report suffix as report mode", () => {
+  assert.deepEqual(parseHarnessTagCommand("#태스크정리.보고"), {
+    tag: "task_close",
+    mode: "report"
+  });
+  assert.equal(parseHarnessTag("#태스크정리.보고"), "task_close");
+});
+
 test("tag adapter rejects unsupported tags", () => {
   assert.equal(parseHarnessTag("#알수없음"), undefined);
+  assert.equal(parseHarnessTagCommand("#알수없음.보고"), undefined);
 });
