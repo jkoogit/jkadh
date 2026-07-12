@@ -1,4 +1,4 @@
-export type HarnessMode = "read-check-report" | "task-start-execute" | "task-close-execute";
+export type HarnessMode = "read-check-report" | "task-start-execute" | "task-close-execute" | "task-promote-execute";
 
 export type HarnessAction =
   | "read_status"
@@ -75,6 +75,18 @@ export function checkGate(input: GateCheckInput): GateCheckResult {
     };
   }
 
+  if (input.mode === "task-promote-execute"
+    && input.tag === "task_promote"
+    && taskPromoteExecuteActions.has(input.requestedAction)) {
+    return {
+      allowed: true,
+      reason: "action is inside task promote execution scope",
+      nextState: "execute",
+      tag: input.tag,
+      requestedAction: input.requestedAction
+    };
+  }
+
   return {
     allowed: false,
     reason: "write action is outside read/check/report scope",
@@ -99,4 +111,11 @@ const taskCloseExecuteActions = new Set<HarnessAction>([
   "push_branch",
   "create_pr",
   "merge_pr"
+]);
+
+const taskPromoteExecuteActions = new Set<HarnessAction>([
+  "read_status",
+  "check_gate",
+  "create_report",
+  "promote_branch"
 ]);
