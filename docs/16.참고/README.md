@@ -14,11 +14,6 @@
 | REF-001 | [AI서비스플랫폼 용어사전](./REF-001_AI서비스플랫폼_용어사전.md) | Draft |
 | REF-002 | [AI개발플랫폼 Harness 설계방향 논의정리](./REF-002_AI개발플랫폼_Harness_설계방향_논의정리.md) | Draft |
 | REF-003 | [Harness 태그기반 프로세스 자동화 검토](./REF-003_Harness_태그기반_프로세스_자동화_검토.md) | Draft |
-| REF-004 | [Harness CLI 1차구현 사용방법](./REF-004_Harness_CLI_1차구현_사용방법.md) | Draft |
-| REF-005 | [Harness CLI 2차구현 사용방법](./REF-005_Harness_CLI_2차구현_사용방법.md) | Draft |
-| REF-006 | [Harness CLI 3차구현 사용방법](./REF-006_Harness_CLI_3차구현_사용방법.md) | Draft |
-| REF-007 | [Harness CLI 4차구현 사용방법](./REF-007_Harness_CLI_4차구현_사용방법.md) | Draft |
-| REF-008 | [Harness CLI 5차구현 사용방법](./REF-008_Harness_CLI_5차구현_사용방법.md) | Draft |
 | REF-009 | [Harness 세션시작 사용방법](./REF-009_Harness_세션시작_사용방법.md) | Draft |
 
 ## 포함 예정 문서
