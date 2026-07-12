@@ -25,3 +25,20 @@ test("gate check allows report creation", () => {
   assert.equal(result.allowed, true);
   assert.equal(result.nextState, "execute");
 });
+
+test("gate check allows task close execution actions only in task close execution mode", () => {
+  const allowed = checkGate({
+    mode: "task-close-execute",
+    requestedAction: "create_pr",
+    tag: "task_close"
+  });
+  const blocked = checkGate({
+    mode: "task-close-execute",
+    requestedAction: "close_issue",
+    tag: "task_close"
+  });
+
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.reason, "action is inside task close execution scope");
+  assert.equal(blocked.allowed, false);
+});

@@ -84,15 +84,15 @@ Git/GitHub/문서/Backlog 상태 조회
 |---|---|---|
 | `#세션시작` | 원격 브랜치 확인, 작업트리 확인, 열린 Issue/PR/Backlog 확인, 작업 후보 보고 | Issue 생성/종료, PR 병합, 브랜치 승급 |
 | `#태스크시작` | Issue 선택 또는 생성, 작업 브랜치 생성, Work Order 생성, 시작 보고 | PR 병합, 브랜치 승급, Issue 종료 |
-| `#태스크정리` | 완료 조건 확인, 테스트/검증 결과 정리, PR 상태 확인, Report/회고 초안, 종료 후보 판정 | Issue 종료, PR 병합, `dev`/`stg`/`main` 승급 |
-| `#태스크승급` | PR 병합, `dev`/`stg`/`main` 승급, 브랜치 정합성 확인 | Issue 종료 |
-| `#세션정리` | 열린 Issue/PR/Backlog 점검, 회고 작성, 종료 후보 Issue 판정, 검증된 종료 후보 Issue 종료 | 검증되지 않은 Issue 종료, 별도 태그 없는 PR 병합/승급 |
+| `#태스크정리` | 완료 조건 확인, 테스트/검증 결과 정리, 커밋, push, PR 생성/갱신, PR 병합 | Issue 종료, `dev`/`stg`/`main` 승급 |
+| `#태스크승급` | 머지된 태스크 변경사항의 `dev`/`stg`/`main` 승급, 브랜치 정합성 확인 | Issue 종료, PR 병합 |
+| `#세션정리` | 완료 태스크 목록 정리, 세션명 현행화, Issue 현행화, 남은 Backlog/Issue/PR 확인, 회고, 미정리 작업 문서 반영, 검증된 Issue 종료, 다음 세션 공유내용 보고 | 검증되지 않은 Issue 종료, 태스크 변경사항 PR 병합/승급 |
 
 핵심 원칙은 다음과 같다.
 
 - Issue 종료는 `#세션정리`에서만 가능하다.
-- `#태스크정리`는 Issue 종료를 수행하지 않는다.
-- `#태스크승급`은 PR과 브랜치 반영까지만 수행하고 Issue를 종료하지 않는다.
+- `#태스크정리`는 PR 생성/갱신/병합까지 수행할 수 있지만 Issue 종료와 브랜치 승급은 수행하지 않는다.
+- `#태스크승급`은 머지된 태스크 변경사항의 브랜치 승급만 수행하고 PR 병합과 Issue 종료를 수행하지 않는다.
 - `#세션정리`는 검증된 종료 후보 Issue만 종료할 수 있다.
 
 ## 5. 자동화 수준
@@ -127,17 +127,23 @@ task_start:
 task_close:
   verify_completion: true
   create_report: true
-  mark_issue_close_candidate: true
-  merge_pr: false
+  commit_changes: true
+  push_branch: true
+  create_pr: true
+  merge_pr: true
   promote_branches: false
   close_issue: false
 
 task_promote:
-  merge_pr: true
+  merge_pr: false
   promote_dev_stg_main: true
   close_issue: false
 
 session_close:
+  update_session_name: true
+  update_issue_title_body: true
+  update_retrospective: true
+  update_unresolved_work_docs: true
   review_open_issues: true
   verify_close_candidates: true
   close_issue: verified_only
@@ -185,9 +191,9 @@ session_close:
 |---|---|---|---|
 | `#세션시작` | 원격 브랜치, 작업트리, 최신 회고, Backlog 확인 | 원격 확인 불가, 저장소 기준 불명확 | Stop 또는 수동 확인 요청 |
 | `#태스크시작` | Issue 또는 WorkOrder, 범위, 제외 범위, 완료 조건, 검증 방법 확인 | Issue 없이 큰 작업 시작, 범위 불명확 | Issue 생성, Work Order Build, Need Clarification |
-| `#태스크정리` | 변경 diff, 검증 결과, PR 연결, 완료 조건 확인 | 검증 없음, PR 연결 불명확, Issue 종료 시도 | Review, Stop, 세션정리 후보 보고 |
-| `#태스크승급` | PR 병합 가능 상태, 승급 대상 커밋, 검증 방법 확인 | 검증 미완료, 브랜치 불일치, Issue 종료 시도 | Need Approval, Stop, 세션정리 후보 보고 |
-| `#세션정리` | 열린 Issue/PR, 종료 후보, 회고, 다음 세션 시작점 확인 | 종료 후보 검증 불충분, PR/승급 미완료 | 보류 보고, Backlog 또는 다음 세션 후보 |
+| `#태스크정리` | 변경 diff, 검증 결과, 완료 조건, 남은 작업 확인 | 검증 없음, 남은 작업 존재, Issue 종료 시도, 브랜치 승급 시도 | 커밋, push, PR 생성/갱신, PR 병합 또는 Stop |
+| `#태스크승급` | 머지된 PR, 승급 대상 커밋, 승급 대상 브랜치, 검증 방법 확인 | PR 미병합, 검증 미완료, 브랜치 불일치, Issue 종료 시도 | 승급 실행 또는 Stop |
+| `#세션정리` | 완료 태스크, 세션명, Issue 현행화, 회고, 남은 Backlog/Issue/PR, 다음 세션 시작점 확인 | 종료 후보 검증 불충분, 회고/미정리 문서 불충분 | Issue 종료, 보류 보고, 다음 세션 공유 |
 
 Harness가 에이전트에게 작업을 허용하는 기준은 다음과 같다.
 
@@ -248,7 +254,7 @@ jkadh task promote
 jkadh session close
 ```
 
-초기 구현은 상태 조회와 표준 보고 생성부터 시작한다. Issue/PR 생성, PR 병합, 브랜치 승급, Issue 종료 같은 GitHub 쓰기 작업은 태그별 책임 경계와 검증 조건이 코드로 고정된 뒤 단계적으로 추가한다.
+초기 구현은 상태 조회와 표준 보고 생성부터 시작한다. 이후 태그별 책임 경계와 검증 조건이 코드로 고정된 범위부터 실행모드를 단계적으로 추가한다. 현재 기준에서 `#태스크정리`는 명시적 `--execute`와 path 기반 staging 조건에서 커밋, push, PR 생성, PR 머지 실행모드를 가질 수 있다. 브랜치 승급은 `#태스크승급`, Issue 종료는 `#세션정리`에서만 다룬다.
 
 ## 9. 관련 문서
 

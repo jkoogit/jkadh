@@ -62,7 +62,7 @@ export interface SessionStartReport {
   blockedActions: string[];
 }
 
-const blockedActions = ["create_issue", "close_issue", "merge_pr", "promote_branch"];
+const blockedActions = ["create_issue", "merge_pr", "promote_branch"];
 
 export function buildSessionStartReport(input: SessionStartInput): SessionStartReport {
   const status = input.branchStatus.isAligned ? "ready" : "blocked";

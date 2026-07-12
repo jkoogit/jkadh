@@ -10,6 +10,7 @@ import { readInternalGitStatus } from "./git/git-status.ts";
 import { readGitHubOpenStatus } from "./github/github-status.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
+import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
 import { buildTaskStartReport, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
 import { checkProjectAccess, loadProjectProfile } from "./projects/project-profile.ts";
 import { createReportDocument } from "./reports/create-report.ts";
@@ -30,7 +31,7 @@ function printUsage(): void {
   jkadh session start [project_id]
   jkadh session close
   jkadh task start
-  jkadh task close
+  jkadh task close [--execute --path <path> --message <message> --pr-title <title>]
   jkadh task promote
   jkadh tag <#세션시작|#태스크시작|#태스크정리|#태스크승급|#세션정리>
   jkadh gate check <tag> <action>
@@ -101,7 +102,21 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "task" && command === "close") {
-    console.log(buildLifecycleReport("task_close").markdown);
+    const taskCloseArgs = argv.slice(2);
+    const blockIndex = taskCloseArgs.indexOf("--block");
+    const input = blockIndex >= 0 && taskCloseArgs[blockIndex + 1]
+      ? parseTaskCloseBlock(taskCloseArgs[blockIndex + 1])
+      : parseTaskCloseArgs(taskCloseArgs);
+    const report = buildTaskCloseReport({
+      ...input,
+      gitSummary: readTaskCloseGitSummary(process.cwd())
+    });
+    console.log(report.markdown);
+    if (input.execution?.enabled) {
+      const execution = executeTaskClose(input, process.cwd());
+      console.log(execution.markdown);
+      return execution.status === "executed" ? 0 : 2;
+    }
     return 0;
   }
 

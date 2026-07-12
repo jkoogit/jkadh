@@ -24,7 +24,7 @@ const flows: Record<HarnessTag, LifecycleFlow> = {
     command: "session start",
     responsibility: "Read repository, branch, environment, and backlog state before work starts.",
     checks: ["branch alignment", "worktree status", "credential status", "backlog candidates"],
-    writeActions: ["create_issue", "close_issue", "merge_pr", "promote_branch"]
+    writeActions: ["create_issue", "merge_pr", "promote_branch"]
   },
   task_start: {
     tag: "task_start",
@@ -36,23 +36,23 @@ const flows: Record<HarnessTag, LifecycleFlow> = {
   task_close: {
     tag: "task_close",
     command: "task close",
-    responsibility: "Check completion evidence and prepare report-only closure candidate state.",
-    checks: ["diff summary", "verification result", "PR status", "completion criteria"],
-    writeActions: ["close_issue", "merge_pr", "promote_branch"]
+    responsibility: "Check completion evidence, then prepare task-level commit, push, PR creation, and PR merge.",
+    checks: ["diff summary", "verification result", "completion criteria", "remaining work", "PR readiness"],
+    writeActions: ["commit_changes", "push_branch", "create_pr", "merge_pr"]
   },
   task_promote: {
     tag: "task_promote",
     command: "task promote",
-    responsibility: "Check promotion readiness without merging or promoting branches.",
-    checks: ["PR merge readiness", "target commit", "promotion branch alignment", "verification result"],
-    writeActions: ["merge_pr", "promote_branch", "close_issue"]
+    responsibility: "Check merged task changes and promote them to the configured target branches.",
+    checks: ["merged PR commit", "target branch", "promotion branch alignment", "verification result"],
+    writeActions: ["promote_branch"]
   },
   session_close: {
     tag: "session_close",
     command: "session close",
-    responsibility: "Check open work, retrospective, next session candidate, and verified close candidates.",
-    checks: ["open issues", "open PRs", "retrospective", "next session candidate"],
-    writeActions: ["close_issue", "merge_pr", "promote_branch"]
+    responsibility: "Update session retrospective documents, unresolved work documents, and close verified issues.",
+    checks: ["completed tasks", "session name update", "issue update", "backlog issue PR remainder", "retrospective", "next session handoff"],
+    writeActions: ["close_issue"]
   }
 };
 

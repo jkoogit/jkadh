@@ -48,7 +48,6 @@ test("session start report summarizes branch and backlog checks", () => {
   assert.match(report.markdown, /github: open issues: 0; open PRs: 0/);
   assert.deepEqual(report.blockedActions, [
     "create_issue",
-    "close_issue",
     "merge_pr",
     "promote_branch"
   ]);

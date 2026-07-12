@@ -16,11 +16,17 @@ test("lifecycle report blocks write actions in read/check/report mode", () => {
 
   assert.equal(report.command, "task promote");
   assert.equal(report.status, "report_only");
-  assert.match(report.markdown, /write actions: merge_pr blocked; promote_branch blocked/);
-  assert.deepEqual(report.blockedActions, ["merge_pr", "promote_branch", "close_issue"]);
+  assert.match(report.markdown, /write actions: promote_branch blocked/);
+  assert.deepEqual(report.blockedActions, ["promote_branch"]);
 });
 
-test("session close report keeps issue closing blocked in second implementation", () => {
+test("issue closing belongs only to session close flow", () => {
+  assert.equal(getLifecycleFlow("task_close").writeActions.includes("close_issue"), false);
+  assert.equal(getLifecycleFlow("task_promote").writeActions.includes("close_issue"), false);
+  assert.equal(getLifecycleFlow("session_close").writeActions.includes("close_issue"), true);
+});
+
+test("session close report keeps issue closing blocked until explicit execution mode exists", () => {
   const report = buildLifecycleReport("session_close");
 
   assert.equal(report.command, "session close");
