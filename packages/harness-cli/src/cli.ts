@@ -9,6 +9,7 @@ import { parseLatestRetrospective } from "./docs/retrospective-index.ts";
 import { readInternalGitStatus } from "./git/git-status.ts";
 import { readGitHubOpenStatus } from "./github/github-status.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
+import { buildSessionCloseReport, executeSessionClose, parseSessionCloseArgs } from "./flows/session-close.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
 import { buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs, readTaskPromoteBranchStatus } from "./flows/task-promote.ts";
@@ -30,7 +31,7 @@ const requiredEnvNames = [
 function printUsage(): void {
   console.log(`Usage:
   jkadh session start [project_id]
-  jkadh session close
+  jkadh session close [--execute --verified-issue <number>]
   jkadh task start [--execute --branch <branch>]
   jkadh task close [--execute --path <path> --message <message> --pr-title <title>]
   jkadh task promote [--target-commit <sha> --target-branches dev,stg --execute]
@@ -87,7 +88,14 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "session" && command === "close") {
-    console.log(buildLifecycleReport("session_close").markdown);
+    const input = parseSessionCloseArgs(argv.slice(2));
+    const report = buildSessionCloseReport(input);
+    console.log(report.markdown);
+    if (input.execution?.enabled) {
+      const execution = executeSessionClose(input, process.cwd());
+      console.log(execution.markdown);
+      return execution.status === "executed" ? 0 : 2;
+    }
     return 0;
   }
 

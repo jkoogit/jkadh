@@ -76,3 +76,20 @@ test("gate check allows only branch promotion in task promote execution mode", (
   assert.equal(allowed.reason, "action is inside task promote execution scope");
   assert.equal(blocked.allowed, false);
 });
+
+test("gate check allows only issue close in session close execution mode", () => {
+  const allowed = checkGate({
+    mode: "session-close-execute",
+    requestedAction: "close_issue",
+    tag: "session_close"
+  });
+  const blocked = checkGate({
+    mode: "session-close-execute",
+    requestedAction: "merge_pr",
+    tag: "session_close"
+  });
+
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.reason, "action is inside session close execution scope");
+  assert.equal(blocked.allowed, false);
+});
