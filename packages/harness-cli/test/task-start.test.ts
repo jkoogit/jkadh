@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildTaskStartReport, parseTaskStartArgs, parseTaskStartBlock } from "../src/flows/task-start.ts";
+import { buildTaskStartReport, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "../src/flows/task-start.ts";
 
 test("task start arg parser accepts issue and required planning fields", () => {
   const input = parseTaskStartArgs([
@@ -23,6 +23,32 @@ test("task start arg parser accepts issue and required planning fields", () => {
     outOfScope: "PR merge",
     completionCriteria: "tests pass",
     verificationMethod: "npm test"
+  });
+});
+
+test("task start arg parser accepts execution options", () => {
+  const input = parseTaskStartArgs([
+    "--issue",
+    "64",
+    "--scope",
+    "Harness CLI task start",
+    "--out-of-scope",
+    "PR merge",
+    "--completion",
+    "tests pass",
+    "--verification",
+    "npm test",
+    "--execute",
+    "--branch",
+    "task_codex/064-harness-task-start-execute",
+    "--start-point",
+    "origin/main"
+  ]);
+
+  assert.deepEqual(input.execution, {
+    enabled: true,
+    branchName: "task_codex/064-harness-task-start-execute",
+    startPoint: "origin/main"
   });
 });
 
@@ -114,4 +140,66 @@ verification: npm test
     completionCriteria: "aliases are parsed",
     verificationMethod: "npm test"
   });
+});
+
+test("task start execution blocks when report is not ready", () => {
+  const result = executeTaskStart({
+    scope: "Harness CLI task start",
+    execution: {
+      enabled: true,
+      branchName: "task_codex/064-harness-task-start-execute",
+      startPoint: "origin/main"
+    }
+  }, "repo");
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /task start report is not ready/);
+});
+
+test("task start execution creates and checks out requested branch", () => {
+  const calls: string[] = [];
+  const result = executeTaskStart({
+    issueNumber: 64,
+    scope: "Harness CLI task start execution",
+    outOfScope: "PR merge",
+    completionCriteria: "branch is created",
+    verificationMethod: "npm test",
+    execution: {
+      enabled: true,
+      branchName: "task_codex/064-harness-task-start-execute",
+      startPoint: "origin/main"
+    }
+  }, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "executed");
+  assert.deepEqual(result.steps.map((step) => step.action), ["create_branch"]);
+  assert.equal(calls[0], "git switch -c task_codex/064-harness-task-start-execute origin/main");
+});
+
+test("task start execution uses recommended branch when branch is omitted", () => {
+  const calls: string[] = [];
+  const result = executeTaskStart({
+    issueNumber: 64,
+    scope: "Harness CLI task start",
+    outOfScope: "PR merge",
+    completionCriteria: "branch is created",
+    verificationMethod: "npm test",
+    execution: {
+      enabled: true,
+      startPoint: "origin/main"
+    }
+  }, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "executed");
+  assert.equal(calls[0], "git switch -c task_codex/064-harness-cli-task-start origin/main");
 });

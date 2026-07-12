@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+
+import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 
 export interface TaskStartInput {
@@ -7,6 +10,13 @@ export interface TaskStartInput {
   outOfScope?: string;
   completionCriteria?: string;
   verificationMethod?: string;
+  execution?: TaskStartExecutionOptions;
+}
+
+export interface TaskStartExecutionOptions {
+  enabled: boolean;
+  branchName?: string;
+  startPoint: string;
 }
 
 export interface TaskStartReport {
@@ -23,35 +33,80 @@ export interface TaskStartReport {
 }
 
 const blockedActions = ["create_issue", "create_branch"];
+const executionActions: HarnessAction[] = ["create_branch"];
+
+export interface CommandRunner {
+  run(command: string, args: string[], cwd: string): string;
+}
+
+export interface TaskStartExecutionResult {
+  status: "executed" | "blocked" | "skipped";
+  markdown: string;
+  steps: {
+    action: HarnessAction;
+    status: "executed" | "blocked" | "skipped";
+    detail: string;
+  }[];
+}
 
 export function parseTaskStartArgs(args: string[]): TaskStartInput {
   const input: TaskStartInput = {};
+  const execution: TaskStartExecutionOptions = {
+    enabled: false,
+    startPoint: "origin/main"
+  };
 
-  for (let index = 0; index < args.length; index += 2) {
+  for (let index = 0; index < args.length; index += 1) {
     const key = args[index];
-    const value = args[index + 1];
-    if (!key || !value) {
+    if (!key) {
       continue;
     }
 
+    if (key === "--execute") {
+      execution.enabled = true;
+      continue;
+    }
+
+    const value = args[index + 1];
+    if (!value) {
+      continue;
+    }
     if (key === "--issue") {
       input.issueNumber = Number(value);
+      index += 1;
     }
     if (key === "--work-order") {
       input.workOrderId = value;
+      index += 1;
     }
     if (key === "--scope") {
       input.scope = value;
+      index += 1;
     }
     if (key === "--out-of-scope") {
       input.outOfScope = value;
+      index += 1;
     }
     if (key === "--completion") {
       input.completionCriteria = value;
+      index += 1;
     }
     if (key === "--verification") {
       input.verificationMethod = value;
+      index += 1;
     }
+    if (key === "--branch") {
+      execution.branchName = value;
+      index += 1;
+    }
+    if (key === "--start-point") {
+      execution.startPoint = value;
+      index += 1;
+    }
+  }
+
+  if (execution.enabled || execution.branchName || execution.startPoint !== "origin/main") {
+    input.execution = execution;
   }
 
   return input;
@@ -148,6 +203,50 @@ export function buildTaskStartReport(input: TaskStartInput): TaskStartReport {
     },
     blockedActions
   };
+}
+
+export function executeTaskStart(input: TaskStartInput, cwd: string, runner: CommandRunner = defaultCommandRunner): TaskStartExecutionResult {
+  if (!input.execution?.enabled) {
+    return buildExecutionResult("skipped", []);
+  }
+
+  const report = buildTaskStartReport(input);
+  if (report.status !== "ready") {
+    return buildExecutionResult("blocked", [{
+      action: "create_branch",
+      status: "blocked",
+      detail: "task start report is not ready"
+    }]);
+  }
+
+  const branchName = input.execution.branchName ?? report.json.recommendedBranchName;
+  if (!branchName) {
+    return buildExecutionResult("blocked", [{
+      action: "create_branch",
+      status: "blocked",
+      detail: "branch name is required"
+    }]);
+  }
+
+  const steps: TaskStartExecutionResult["steps"] = [];
+  for (const action of executionActions) {
+    const gate = checkGate({
+      mode: "task-start-execute",
+      tag: "task_start",
+      requestedAction: action
+    });
+    if (!gate.allowed) {
+      steps.push({ action, status: "blocked", detail: gate.reason });
+      return buildExecutionResult("blocked", steps);
+    }
+
+    steps.push(runExecutionStep(action, {
+      branchName,
+      startPoint: input.execution.startPoint
+    }, cwd, runner));
+  }
+
+  return buildExecutionResult("executed", steps);
 }
 
 function buildSuggestedTaskStartOrder(input: TaskStartInput): string {
@@ -248,4 +347,50 @@ function slugifyScope(scope: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "") || "task";
+}
+
+const defaultCommandRunner: CommandRunner = {
+  run(command: string, args: string[], cwd: string): string {
+    return execFileSync(command, args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+  }
+};
+
+function runExecutionStep(
+  action: HarnessAction,
+  execution: { branchName: string; startPoint: string },
+  cwd: string,
+  runner: CommandRunner
+): TaskStartExecutionResult["steps"][number] {
+  if (action === "create_branch") {
+    runner.run("git", ["switch", "-c", execution.branchName, execution.startPoint], cwd);
+    return {
+      action,
+      status: "executed",
+      detail: `checked out ${execution.branchName} from ${execution.startPoint}`
+    };
+  }
+
+  return { action, status: "skipped", detail: "unsupported action" };
+}
+
+function buildExecutionResult(status: TaskStartExecutionResult["status"], steps: TaskStartExecutionResult["steps"]): TaskStartExecutionResult {
+  const markdown = [
+    "# Harness CLI task start execution",
+    "",
+    `status: ${status}`,
+    "",
+    "## Steps",
+    "",
+    ...(steps.length === 0 ? ["- [skipped] execution: not requested"] : steps.map((step) => `- [${step.status}] ${step.action}: ${step.detail}`))
+  ].join("\n");
+
+  return {
+    status,
+    markdown: `${markdown}\n`,
+    steps
+  };
 }
