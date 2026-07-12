@@ -18,6 +18,7 @@
 | REF-005 | [Harness 태스크시작 사용방법](./REF-005_Harness_태스크시작_사용방법.md) | Draft |
 | REF-006 | [Harness 태스크정리 사용방법](./REF-006_Harness_태스크정리_사용방법.md) | Draft |
 | REF-007 | [Harness 태스크승급 사용방법](./REF-007_Harness_태스크승급_사용방법.md) | Draft |
+| REF-008 | [Harness 세션정리 사용방법](./REF-008_Harness_세션정리_사용방법.md) | Draft |
 
 ## 포함 예정 문서
 
