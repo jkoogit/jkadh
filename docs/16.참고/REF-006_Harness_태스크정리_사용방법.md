@@ -1,5 +1,11 @@
 # REF-006 Harness 태스크정리 사용방법
 
+## 현행 구현 기준
+
+2026-07-13 현재 채팅 태그 `#태스크정리`의 기본 동작은 실행모드다. 보고만 필요하면 `#태스크정리.보고`를 사용한다.
+
+실행모드는 태스크 변경사항을 commit/push하고 PR을 `dev` 대상으로 생성/갱신한 뒤 merge한다. `stg`, `main` 반영은 `#태스크승급`에서 처리하며, Issue 종료는 `#세션정리`에서만 처리한다.
+
 | 항목 | 값 |
 |---|---|
 | 문서 ID | REF-006 |
@@ -118,7 +124,7 @@
 - PR 생성
 - PR 병합
 
-단, 실제 실행은 기본 동작이 아니다. `--execute`를 명시하고 실행 필수 옵션을 제공한 경우에만 커밋, push, PR 생성, PR 머지를 수행한다.
+채팅 태그 기준으로는 기본 `#태스크정리`가 실행 의도다. CLI 직접 실행 기준에서는 `--execute`를 명시하고 실행 필수 옵션을 제공한 경우에만 커밋, push, PR 생성, PR 머지를 수행한다.
 
 `#태스크정리`는 다음 작업을 하지 않는다.
 
@@ -160,7 +166,7 @@ node --experimental-strip-types src/cli.ts task close `
 
 ## 9. 실행모드
 
-기본 `task close`는 report-only로 동작한다. 실제 커밋, push, PR 생성, PR 머지를 실행하려면 `--execute`를 명시한다.
+CLI 직접 실행 기준의 기본 `task close`는 report-only로 동작한다. 채팅 태그 `#태스크정리`는 기본 실행모드이며, 보고만 필요하면 `#태스크정리.보고`를 사용한다. CLI에서 실제 커밋, push, PR 생성, PR 머지를 실행하려면 `--execute`를 명시한다.
 
 실행모드는 다음 조건을 요구한다.
 
@@ -172,7 +178,7 @@ node --experimental-strip-types src/cli.ts task close `
 | `--message` | 필수 | 커밋 메시지 |
 | `--pr-title` | 필수 | PR 제목 |
 | `--pr-body` | 선택 | PR 본문. 없으면 기본 본문 생성 |
-| `--base` | 선택 | PR base 브랜치. 기본값 `main` |
+| `--base` | 선택 | PR base 브랜치. 기본값 `dev` |
 | `--no-merge` | 선택 | PR 생성까지만 하고 머지는 생략 |
 
 예시는 다음과 같다.

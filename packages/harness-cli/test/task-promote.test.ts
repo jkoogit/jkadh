@@ -24,36 +24,47 @@ test("task promote arg parser accepts target commit branches and execution flag"
   });
 });
 
+test("task promote arg parser defaults to stg and main target branches", () => {
+  const input = parseTaskPromoteArgs([
+    "--target-commit",
+    "abc123",
+    "--verification",
+    "npm test passed"
+  ]);
+
+  assert.deepEqual(input.targetBranches, ["stg", "main"]);
+});
+
 test("task promote report is ready when all target branches can fast-forward", () => {
   const report = buildTaskPromoteReport({
     targetCommit: "abc123",
-    targetBranches: ["dev", "stg"],
+    targetBranches: ["stg", "main"],
     verificationResult: "npm test passed",
     branchStatus: [
-      { branch: "dev", currentCommit: "base", targetCommit: "abc123", fastForward: true },
-      { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true }
+      { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true },
+      { branch: "main", currentCommit: "base", targetCommit: "abc123", fastForward: true }
     ]
   });
 
   assert.equal(report.status, "ready");
   assert.equal(report.json.promotionReady, true);
-  assert.match(report.markdown, /branch readiness: dev: fast-forward/);
+  assert.match(report.markdown, /branch readiness: stg: fast-forward/);
 });
 
 test("task promote report is blocked when a target branch cannot fast-forward", () => {
   const report = buildTaskPromoteReport({
     targetCommit: "abc123",
-    targetBranches: ["dev", "stg"],
+    targetBranches: ["stg", "main"],
     verificationResult: "npm test passed",
     branchStatus: [
-      { branch: "dev", currentCommit: "base", targetCommit: "abc123", fastForward: true },
-      { branch: "stg", currentCommit: "other", targetCommit: "abc123", fastForward: false }
+      { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true },
+      { branch: "main", currentCommit: "other", targetCommit: "abc123", fastForward: false }
     ]
   });
 
   assert.equal(report.status, "blocked");
   assert.equal(report.json.promotionReady, false);
-  assert.match(report.markdown, /stg: blocked/);
+  assert.match(report.markdown, /main: blocked/);
 });
 
 test("task promote execution blocks when report is not ready", () => {
@@ -74,14 +85,14 @@ test("task promote execution pushes target commit to target branches", () => {
   const calls: string[] = [];
   const result = executeTaskPromote({
     targetCommit: "abc123",
-    targetBranches: ["dev", "stg"],
+    targetBranches: ["stg", "main"],
     verificationResult: "npm test passed",
     execution: {
       enabled: true
     },
     branchStatus: [
-      { branch: "dev", currentCommit: "base", targetCommit: "abc123", fastForward: true },
-      { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true }
+      { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true },
+      { branch: "main", currentCommit: "base", targetCommit: "abc123", fastForward: true }
     ]
   }, "repo", {
     run(command, args) {
@@ -92,7 +103,7 @@ test("task promote execution pushes target commit to target branches", () => {
 
   assert.equal(result.status, "executed");
   assert.deepEqual(calls, [
-    "git push origin abc123:refs/heads/dev",
-    "git push origin abc123:refs/heads/stg"
+    "git push origin abc123:refs/heads/stg",
+    "git push origin abc123:refs/heads/main"
   ]);
 });

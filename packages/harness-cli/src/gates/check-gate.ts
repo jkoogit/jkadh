@@ -117,6 +117,7 @@ const taskStartExecuteActions = new Set<HarnessAction>([
   "read_status",
   "check_gate",
   "create_report",
+  "create_issue",
   "create_branch"
 ]);
 

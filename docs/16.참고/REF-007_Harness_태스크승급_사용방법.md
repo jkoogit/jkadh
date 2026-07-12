@@ -1,5 +1,11 @@
 # REF-007 Harness 태스크승급 사용방법
 
+## 현행 구현 기준
+
+2026-07-13 현재 채팅 태그 `#태스크승급`의 기본 동작은 실행모드다. 보고만 필요하면 `#태스크승급.보고`를 사용한다.
+
+`#태스크승급`은 `#태스크정리`에서 PR이 `dev`에 merge된 뒤, 그 `dev` 커밋을 `stg`, `main`으로 fast-forward 승급한다. PR 생성/merge는 하지 않고, Issue 종료도 하지 않는다.
+
 | 항목 | 값 |
 |---|---|
 | 문서 ID | REF-007 |
@@ -27,14 +33,14 @@
 
 본 문서는 `#태스크승급`에서 머지된 태스크 변경사항을 대상 브랜치로 승급하는 방법을 정리한다.
 
-`#태스크승급`은 PR을 생성하거나 머지하는 단계가 아니다. 이미 머지된 PR 또는 지정 커밋을 기준으로 `dev`, `stg` 같은 대상 브랜치가 fast-forward 가능한지 확인하고, 실행모드에서 대상 브랜치를 갱신한다.
+`#태스크승급`은 PR을 생성하거나 머지하는 단계가 아니다. 이미 `dev`에 머지된 PR 또는 지정 커밋을 기준으로 `stg`, `main` 대상 브랜치가 fast-forward 가능한지 확인하고, 실행모드에서 대상 브랜치를 갱신한다.
 
 ## 2. 사용할 때
 
 다음 상황에서 사용한다.
 
 - `#태스크정리`에서 PR merge가 끝났을 때
-- `main`에 반영된 태스크 변경사항을 `dev`, `stg`에 맞춰야 할 때
+- `dev`에 반영된 태스크 변경사항을 `stg`, `main`에 맞춰야 할 때
 - 대상 브랜치가 지정 커밋으로 fast-forward 가능한지 확인해야 할 때
 
 ## 3. CLI 직접 실행 방법
@@ -51,7 +57,7 @@
 cd D:\dev\workspace\ai.codex\jkadh\packages\harness-cli
 node --experimental-strip-types src/cli.ts task promote `
   --target-commit da7c23afe810b255b2934c7855ef0a6224c80b42 `
-  --target-branches dev,stg `
+  --target-branches stg,main `
   --verification "npm test and npm run check passed"
 ```
 
@@ -62,7 +68,7 @@ node --experimental-strip-types src/cli.ts task promote `
 ```powershell
 node --experimental-strip-types src/cli.ts task promote `
   --target-commit da7c23afe810b255b2934c7855ef0a6224c80b42 `
-  --target-branches dev,stg `
+  --target-branches stg,main `
   --verification "npm test and npm run check passed" `
   --execute
 ```

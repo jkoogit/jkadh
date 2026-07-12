@@ -62,7 +62,7 @@ export function parseTaskCloseArgs(args: string[]): TaskCloseInput {
   const execution: TaskCloseExecutionOptions = {
     enabled: false,
     paths: [],
-    baseBranch: "main",
+    baseBranch: "dev",
     mergePr: true
   };
 

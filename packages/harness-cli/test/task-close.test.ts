@@ -55,6 +55,28 @@ test("task close arg parser accepts execution options", () => {
   });
 });
 
+test("task close execution defaults PR base to dev", () => {
+  const input = parseTaskCloseArgs([
+    "--completion",
+    "implemented task close report",
+    "--verification",
+    "npm test passed",
+    "--out-of-scope",
+    "promotion",
+    "--remaining",
+    "none",
+    "--execute",
+    "--path",
+    "packages/harness-cli/src/flows/task-close.ts",
+    "--message",
+    "feat: add task close execution mode",
+    "--pr-title",
+    "Harness task close execution mode"
+  ]);
+
+  assert.equal(input.execution?.baseBranch, "dev");
+});
+
 test("task close report is ready when closure evidence is present and no work remains", () => {
   const report = buildTaskCloseReport({
     completionSummary: "implemented task close report",
@@ -143,7 +165,7 @@ test("task close execution runs commit push PR create and optional merge", () =>
       paths: ["packages/harness-cli/src/flows/task-close.ts"],
       commitMessage: "feat: add task close execution mode",
       prTitle: "Harness task close execution mode",
-      baseBranch: "main",
+      baseBranch: "dev",
       mergePr: true
     }
   }, "repo", {
@@ -169,7 +191,7 @@ test("task close execution runs commit push PR create and optional merge", () =>
   assert.equal(calls[0], "git add -- packages/harness-cli/src/flows/task-close.ts");
   assert.match(calls.join("\n"), /git commit -m feat: add task close execution mode/);
   assert.match(calls.join("\n"), /git push origin task_codex\/064-harness-cli-minimal/);
-  assert.match(calls.join("\n"), /gh pr create --base main --head task_codex\/064-harness-cli-minimal/);
+  assert.match(calls.join("\n"), /gh pr create --base dev --head task_codex\/064-harness-cli-minimal/);
   assert.match(calls.join("\n"), /gh pr merge --merge --delete-branch=false/);
 });
 
@@ -185,7 +207,7 @@ test("task close execution updates existing PR before merge", () => {
       paths: ["packages/harness-cli/src/flows/task-close.ts"],
       commitMessage: "feat: add task close execution mode",
       prTitle: "Harness task close execution mode",
-      baseBranch: "main",
+      baseBranch: "dev",
       mergePr: true
     }
   }, "repo", {

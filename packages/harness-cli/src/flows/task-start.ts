@@ -17,6 +17,7 @@ export interface TaskStartExecutionOptions {
   enabled: boolean;
   branchName?: string;
   startPoint: string;
+  issueTitle?: string;
 }
 
 export interface TaskStartReport {
@@ -33,7 +34,7 @@ export interface TaskStartReport {
 }
 
 const blockedActions = ["create_issue", "create_branch"];
-const executionActions: HarnessAction[] = ["create_branch"];
+const executionActions: HarnessAction[] = ["create_issue", "create_branch"];
 
 export interface CommandRunner {
   run(command: string, args: string[], cwd: string): string;
@@ -99,13 +100,17 @@ export function parseTaskStartArgs(args: string[]): TaskStartInput {
       execution.branchName = value;
       index += 1;
     }
+    if (key === "--issue-title") {
+      execution.issueTitle = value;
+      index += 1;
+    }
     if (key === "--start-point") {
       execution.startPoint = value;
       index += 1;
     }
   }
 
-  if (execution.enabled || execution.branchName || execution.startPoint !== "origin/main") {
+  if (execution.enabled || execution.branchName || execution.issueTitle || execution.startPoint !== "origin/main") {
     input.execution = execution;
   }
 
@@ -219,17 +224,14 @@ export function executeTaskStart(input: TaskStartInput, cwd: string, runner: Com
     }]);
   }
 
-  const branchName = input.execution.branchName ?? report.json.recommendedBranchName;
-  if (!branchName) {
-    return buildExecutionResult("blocked", [{
-      action: "create_branch",
-      status: "blocked",
-      detail: "branch name is required"
-    }]);
-  }
-
   const steps: TaskStartExecutionResult["steps"] = [];
+  let issueNumber = input.issueNumber;
   for (const action of executionActions) {
+    if (action === "create_issue" && issueNumber) {
+      steps.push({ action, status: "skipped", detail: `using existing issue #${issueNumber}` });
+      continue;
+    }
+
     const gate = checkGate({
       mode: "task-start-execute",
       tag: "task_start",
@@ -240,7 +242,29 @@ export function executeTaskStart(input: TaskStartInput, cwd: string, runner: Com
       return buildExecutionResult("blocked", steps);
     }
 
-    steps.push(runExecutionStep(action, {
+    if (action === "create_issue") {
+      const step = runCreateIssueStep(input, cwd, runner);
+      steps.push(step);
+      const createdIssue = parseIssueNumber(step.detail);
+      if (!createdIssue) {
+        return buildExecutionResult("blocked", steps);
+      }
+      issueNumber = createdIssue;
+      continue;
+    }
+
+    const branchName = input.execution.branchName
+      ?? (issueNumber && input.scope ? `task_codex/${String(issueNumber).padStart(3, "0")}-${slugifyScope(input.scope)}` : undefined);
+    if (!branchName) {
+      steps.push({
+        action: "create_branch",
+        status: "blocked",
+        detail: "branch name is required"
+      });
+      return buildExecutionResult("blocked", steps);
+    }
+
+    steps.push(runCreateBranchStep({
       branchName,
       startPoint: input.execution.startPoint
     }, cwd, runner));
@@ -359,22 +383,60 @@ const defaultCommandRunner: CommandRunner = {
   }
 };
 
-function runExecutionStep(
-  action: HarnessAction,
+function runCreateIssueStep(
+  input: TaskStartInput,
+  cwd: string,
+  runner: CommandRunner
+): TaskStartExecutionResult["steps"][number] {
+  const title = input.execution?.issueTitle ?? input.workOrderId ?? input.scope ?? "Harness task";
+  const body = buildIssueBody(input);
+  const output = runner.run("gh", ["issue", "create", "--title", title, "--body", body], cwd);
+  const issueNumber = parseIssueNumber(output);
+  return {
+    action: "create_issue",
+    status: issueNumber ? "executed" : "blocked",
+    detail: issueNumber ? `created issue #${issueNumber}` : "issue creation did not return an issue number"
+  };
+}
+
+function runCreateBranchStep(
   execution: { branchName: string; startPoint: string },
   cwd: string,
   runner: CommandRunner
 ): TaskStartExecutionResult["steps"][number] {
-  if (action === "create_branch") {
-    runner.run("git", ["switch", "-c", execution.branchName, execution.startPoint], cwd);
-    return {
-      action,
-      status: "executed",
-      detail: `checked out ${execution.branchName} from ${execution.startPoint}`
-    };
-  }
+  runner.run("git", ["switch", "-c", execution.branchName, execution.startPoint], cwd);
+  return {
+    action: "create_branch",
+    status: "executed",
+    detail: `checked out ${execution.branchName} from ${execution.startPoint}`
+  };
+}
 
-  return { action, status: "skipped", detail: "unsupported action" };
+function buildIssueBody(input: TaskStartInput): string {
+  return [
+    "## Scope",
+    "",
+    input.scope ?? "TBD",
+    "",
+    "## Out Of Scope",
+    "",
+    input.outOfScope ?? "TBD",
+    "",
+    "## Completion",
+    "",
+    input.completionCriteria ?? "TBD",
+    "",
+    "## Verification",
+    "",
+    input.verificationMethod ?? "TBD"
+  ].join("\n");
+}
+
+function parseIssueNumber(value: string): number | undefined {
+  const match = value.match(/\/issues\/(\d+)|#(\d+)|created issue #(\d+)/i);
+  const raw = match?.[1] ?? match?.[2] ?? match?.[3];
+  const issueNumber = raw ? Number(raw) : NaN;
+  return Number.isFinite(issueNumber) ? issueNumber : undefined;
 }
 
 function buildExecutionResult(status: TaskStartExecutionResult["status"], steps: TaskStartExecutionResult["steps"]): TaskStartExecutionResult {
