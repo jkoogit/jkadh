@@ -1,8 +1,8 @@
-# REF-009 Harness 세션시작 사용방법
+# REF-004 Harness 세션시작 사용방법
 
 | 항목 | 값 |
 |---|---|
-| 문서 ID | REF-009 |
+| 문서 ID | REF-004 |
 | 문서 유형 | 참고 |
 | 상태 | Draft |
 | 성숙도 | Candidate |
