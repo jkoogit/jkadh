@@ -22,7 +22,7 @@
 - [5. 최소 엔티티](#5-최소-엔티티)
 - [6. 데이터 흐름](#6-데이터-흐름)
 - [7. API 후보](#7-api-후보)
-- [8. 스킬 후보](#8-스킬-후보)
+- [8. HCP와 Skill 후보](#8-hcp와-skill-후보)
 - [9. 초기 구현 범위](#9-초기-구현-범위)
 - [10. 판단 지표](#10-판단-지표)
 - [11. 관련 문서](#11-관련-문서)
@@ -44,7 +44,7 @@
 - 검증, 리뷰, 수용 후보 판단 기록
 - 수정결과 개선사항 분석 기록
 - Harness Report 생성에 필요한 운영데이터 조회
-- 향후 스킬과 API 프로세스로 반복할 작업 후보 정리
+- 향후 HCP, Skill, API 프로세스로 반복할 작업 후보 정리
 
 다음 항목은 본 문서에서 확정하지 않는다.
 
@@ -81,7 +81,7 @@
 | Insight Store | 수정결과 개선사항 분석, 리팩토링 후보, 구현 Backlog 후보를 저장한다. |
 | Report Store | Harness Report와 후속 흐름을 저장한다. |
 | API Layer | 저장소 접근과 Harness 프로세스를 위한 API를 제공한다. |
-| Skill Interface | 반복 작업을 스킬이나 명령형 절차로 호출할 수 있게 한다. |
+| HCP/Skill Interface | 반복 작업을 HCP 태그 명령이나 Skill로 호출할 수 있게 한다. |
 
 각 Store는 구현상 하나의 DB에 들어갈 수 있지만, 설계상 책임은 분리한다.
 
@@ -148,20 +148,21 @@ Backlog, PR, 후속 Issue 연결
 
 초기 API는 내부 운영 API로 본다. 외부 공개 API 또는 사용자용 API로 확정하지 않는다.
 
-## 8. 스킬 후보
+## 8. HCP와 Skill 후보
 
-반복되는 Harness 작업은 다음 스킬 후보로 분리할 수 있다.
+반복되는 Harness 생명주기 작업은 HCP로 우선 정의한다. 특정 도구, 산출물, 도메인에 특화된 반복 작업은 별도 Skill 후보로 분리할 수 있다.
 
-| 스킬 후보 | 목적 | 입력 | 출력 |
-|---|---|---|---|
-| Work Order Builder | 모호한 요청을 실행 가능한 Work Order로 변환 | 사용자 요청, 관련 문서 | Work Order 초안 |
-| Assignment Recommender | 작업 성격과 난이도에 맞는 역할 배치 제안 | Work Order, ORG-003 | 역할 배치 후보 |
-| Token Reporter | Token Budget과 Usage를 기록하고 상태 판단 | Token Usage, OPS-001 | Token 상태와 조정 제안 |
-| Verification Collector | 검증 근거를 수집하고 완료 조건과 연결 | 검증 명령, 결과 | 검증 요약 |
-| Change Insight Reporter | 수정결과 개선사항 분석 작성 | diff, 변경 파일, CHK-004 | 인사이트와 Backlog 후보 |
-| Harness Reporter | 작업 결과를 Report로 정리 | Work Order, 검증, 리뷰, Token, 인사이트 | Harness Report |
+| 후보 | 유형 | 목적 | 입력 | 출력 |
+|---|---|---|---|---|
+| HCP Core | HCP | `#세션시작`, `#태스크시작`, `#태스크정리`, `#태스크승급`, `#세션정리` 생명주기 실행 | 사용자 태그, 저장소/GitHub 상태 | 표준 Harness 실행 결과 |
+| Work Order Builder | Skill 후보 | 모호한 요청을 실행 가능한 Work Order로 변환 | 사용자 요청, 관련 문서 | Work Order 초안 |
+| Assignment Recommender | Skill 후보 | 작업 성격과 난이도에 맞는 역할 배치 제안 | Work Order, ORG-003 | 역할 배치 후보 |
+| Token Reporter | Skill 후보 | Token Budget과 Usage를 기록하고 상태 판단 | Token Usage, OPS-001 | Token 상태와 조정 제안 |
+| Verification Collector | Skill 후보 | 검증 근거를 수집하고 완료 조건과 연결 | 검증 명령, 결과 | 검증 요약 |
+| Change Insight Reporter | Skill 후보 | 수정결과 개선사항 분석 작성 | diff, 변경 파일, CHK-004 | 인사이트와 Backlog 후보 |
+| Harness Reporter | Skill 후보 | 작업 결과를 Report로 정리 | Work Order, 검증, 리뷰, Token, 인사이트 | Harness Report |
 
-스킬은 서비스 API를 대체하지 않는다. 스킬은 반복 작업의 실행 인터페이스이고, API는 상태 저장과 조회 경계다.
+HCP와 Skill은 서비스 API를 대체하지 않는다. HCP와 Skill은 반복 작업의 실행 인터페이스이고, API는 상태 저장과 조회 경계다.
 
 ## 9. 초기 구현 범위
 
