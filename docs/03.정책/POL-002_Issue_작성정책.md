@@ -9,9 +9,9 @@
 | 버전 | v0.1 |
 | 소유자 | jk |
 | 작성 에이전트 | Codex |
-| 기준 브랜치 | dev |
-| 작업 브랜치 | task_codex/001-docs-governance-foundation |
-| 최종 수정일 | 2026-07-08 |
+| 기준 브랜치 | main |
+| 작업 브랜치 | task_codex/058-harness-policy-gates |
+| 최종 수정일 | 2026-07-12 |
 
 ## 목차
 
@@ -117,6 +117,7 @@ Issue 제목은 다음 형식을 사용한다.
 - 여러 유형이 함께 변경되면 작업 목적을 가장 잘 나타내는 대표 유형 하나만 제목에 표시하고, 나머지 유형은 Issue 본문 작업 범위에 남긴다.
 - 이슈명은 한글을 사용할 수 있으며, 단어 구분은 `_`를 사용한다.
 - Issue 생성 전에는 순번을 확정할 수 없으므로, Issue 생성 직후 기존 작업 Issue 목록을 기준으로 순번을 확정하고 제목을 보정한다.
+- Issue 제목 보정은 PR 제목 보정보다 먼저 수행한다. Issue 제목이 규칙과 맞지 않으면 PR 제목, 브랜치명, 세션명 기준도 흔들리므로 먼저 Issue 제목을 확정한다.
 - 문서 prefix가 아직 정해지지 않은 작업은 가장 가까운 작업 유형을 사용하고, 필요하면 Issue 본문에 판단 근거를 남긴다.
 - GitHub Issue URL의 `#번호`는 링크와 종료 판단에만 사용하고, 제목의 Issue 순번으로 사용하지 않는다.
 
@@ -390,6 +391,7 @@ Backlog가 해결되면 다음 항목을 확인한다.
 | 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 번호를 GitHub 채번이 아닌 Issue 전용 순번으로 변경 |
 | 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목의 ISS prefix 제거 |
 | 2026-07-05 | - | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 작업유형을 대표 prefix 하나로 단순화 |
+| 2026-07-12 | [#58](https://github.com/jkoogit/jkadh/issues/58) | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 우선 보정 후 PR 제목을 보정하는 순서 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 번호 기반 Backlog ID와 연결 이력 기준 추가 |
 | 2026-07-08 | [#33](https://github.com/jkoogit/jkadh/issues/33) | Codex | GPT-5 | CTO | jk / Codex | Revise | 신규 Backlog 작성 기준을 Backlog 전용 템플릿으로 연결 |
 | 2026-07-08 | [#41](https://github.com/jkoogit/jkadh/issues/41) | Codex | GPT-5 | CTO | jk / Codex | Revise | 공식 문서 Header 표 형식 현행화 |
