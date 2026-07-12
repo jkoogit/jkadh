@@ -1,0 +1,9 @@
+# Local environment files can contain tokens and service credentials.
+.env
+.env.*
+!.env.example
+
+# Runtime output and local package artifacts.
+node_modules/
+dist/
+coverage/

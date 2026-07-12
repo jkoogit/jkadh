@@ -1,0 +1,16 @@
+{
+  "name": "@jkadh/harness-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "jkadh": "./src/cli.ts"
+  },
+  "scripts": {
+    "test": "node --test --experimental-strip-types test/*.test.ts",
+    "check": "node --check --experimental-strip-types src/cli.ts"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}
