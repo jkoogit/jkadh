@@ -11,6 +11,7 @@ import { readGitHubOpenStatus } from "./github/github-status.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
+import { buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs, readTaskPromoteBranchStatus } from "./flows/task-promote.ts";
 import { buildTaskStartReport, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
 import { checkProjectAccess, loadProjectProfile } from "./projects/project-profile.ts";
 import { createReportDocument } from "./reports/create-report.ts";
@@ -32,7 +33,7 @@ function printUsage(): void {
   jkadh session close
   jkadh task start [--execute --branch <branch>]
   jkadh task close [--execute --path <path> --message <message> --pr-title <title>]
-  jkadh task promote
+  jkadh task promote [--target-commit <sha> --target-branches dev,stg --execute]
   jkadh tag <#세션시작|#태스크시작|#태스크정리|#태스크승급|#세션정리>
   jkadh gate check <tag> <action>
   jkadh report create
@@ -126,7 +127,18 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "task" && command === "promote") {
-    console.log(buildLifecycleReport("task_promote").markdown);
+    const input = parseTaskPromoteArgs(argv.slice(2));
+    const reportInput = {
+      ...input,
+      branchStatus: readTaskPromoteBranchStatus(input, process.cwd())
+    };
+    const report = buildTaskPromoteReport(reportInput);
+    console.log(report.markdown);
+    if (input.execution?.enabled) {
+      const execution = executeTaskPromote(reportInput, process.cwd());
+      console.log(execution.markdown);
+      return execution.status === "executed" ? 0 : 2;
+    }
     return 0;
   }
 

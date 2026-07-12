@@ -59,3 +59,20 @@ test("gate check allows only branch creation in task start execution mode", () =
   assert.equal(allowed.reason, "action is inside task start execution scope");
   assert.equal(blocked.allowed, false);
 });
+
+test("gate check allows only branch promotion in task promote execution mode", () => {
+  const allowed = checkGate({
+    mode: "task-promote-execute",
+    requestedAction: "promote_branch",
+    tag: "task_promote"
+  });
+  const blocked = checkGate({
+    mode: "task-promote-execute",
+    requestedAction: "merge_pr",
+    tag: "task_promote"
+  });
+
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.reason, "action is inside task promote execution scope");
+  assert.equal(blocked.allowed, false);
+});
