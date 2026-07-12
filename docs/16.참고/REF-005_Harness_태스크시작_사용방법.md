@@ -23,8 +23,9 @@
 - [6. Harness가 확인하는 항목](#6-harness가-확인하는-항목)
 - [7. Harness가 하지 않는 일](#7-harness가-하지-않는-일)
 - [8. CLI 직접 실행 방법](#8-cli-직접-실행-방법)
-- [9. 결과 해석 기준](#9-결과-해석-기준)
-- [10. 다음 단계](#10-다음-단계)
+- [9. 실행모드](#9-실행모드)
+- [10. 결과 해석 기준](#10-결과-해석-기준)
+- [11. 다음 단계](#11-다음-단계)
 - [작업 이력](#작업-이력)
 
 ## 1. 목적
@@ -144,11 +145,11 @@ s = task start support
 | 검증방법 | 입력 여부 확인 |
 | 준비 상태 | 필수 항목이 모두 있으면 `ready`, 누락이 있으면 `blocked`와 주문서 초안 출력 |
 | 추천 브랜치명 | Issue 번호와 작업범위를 기준으로 제안 |
-| 쓰기 작업 | `create_issue`, `create_branch`는 report에서 차단 항목으로 표시 |
+| 쓰기 작업 | 기본 report에서는 `create_issue`, `create_branch` 차단 표시 |
 
 ## 7. Harness가 하지 않는 일
 
-현재 `#태스크시작` report 자체는 다음 작업을 하지 않는다.
+기본 `#태스크시작` report 자체는 다음 작업을 하지 않는다.
 
 - Issue 생성
 - 작업 브랜치 생성
@@ -160,6 +161,8 @@ s = task start support
 - `dev`, `stg`, `main` 승급
 
 구현 작업은 `#태스크시작` report가 ready인 것을 확인한 뒤 Codex 작업으로 진행한다. 커밋, push, PR, 승급은 별도 태그 또는 명시 주문이 있을 때만 수행한다.
+
+작업 브랜치 생성과 checkout은 `--execute` 실행모드에서만 수행한다. Issue 생성은 실행모드에서도 수행하지 않는다.
 
 ## 8. CLI 직접 실행 방법
 
@@ -195,7 +198,45 @@ node --experimental-strip-types src/cli.ts task start `
   --verification "npm test and npm run check"
 ```
 
-## 9. 결과 해석 기준
+## 9. 실행모드
+
+기본 `task start`는 report-only로 동작한다. 작업 브랜치 생성과 checkout을 실행하려면 `--execute`를 명시한다.
+
+실행모드는 다음 조건을 요구한다.
+
+| 옵션 | 필수 여부 | 설명 |
+|---|---|---|
+| `--execute` | 필수 | 실행모드 진입 |
+| `--branch` | 선택 | 생성/checkout할 브랜치명. 없으면 추천 브랜치명 사용 |
+| `--start-point` | 선택 | 브랜치를 시작할 기준. 기본값 `origin/main` |
+
+예시는 다음과 같다.
+
+```powershell
+node --experimental-strip-types src/cli.ts task start `
+  --issue 64 `
+  --scope "Harness task start execution mode" `
+  --out-of-scope "Issue creation, PR merge, branch promotion, issue close" `
+  --completion "Branch is created and checked out" `
+  --verification "npm test and npm run check" `
+  --execute `
+  --branch "task_codex/064-harness-task-start-execute" `
+  --start-point "origin/main"
+```
+
+실행모드는 다음 작업만 수행한다.
+
+- `git switch -c <branch> <start-point>`
+
+실행모드는 다음 작업을 수행하지 않는다.
+
+- Issue 생성
+- WorkOrder 영속 저장
+- PR 생성 또는 머지
+- `dev`, `stg`, `main` 승급
+- Issue 종료
+
+## 10. 결과 해석 기준
 
 대표 출력 항목의 의미는 다음과 같다.
 
@@ -211,8 +252,9 @@ node --experimental-strip-types src/cli.ts task start `
 | `verification` | 완료 확인 방법이다. |
 | `recommended branch` | Harness가 제안하는 작업 브랜치명이다. |
 | `write actions` | 현재 report 단계에서 차단되는 상태 변경 작업이다. |
+| `task start execution` | `--execute` 실행 결과다. |
 
-## 10. 다음 단계
+## 11. 다음 단계
 
 `#태스크시작` report를 확인한 뒤에는 다음 중 하나로 진행한다.
 
@@ -231,5 +273,6 @@ node --experimental-strip-types src/cli.ts task start `
 |---|---|---|---|---|---|---|---|
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Create | Harness `#태스크시작` 사용방법 문서 작성 |
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | 빈 `#태스크시작` 입력 시 주문서 초안 출력 흐름 반영 |
+| 2026-07-13 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크시작` 실행모드와 브랜치 생성/checkout 기준 추가 |
 
 [목차로 이동](#목차)

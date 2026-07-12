@@ -1,4 +1,4 @@
-export type HarnessMode = "read-check-report" | "task-close-execute";
+export type HarnessMode = "read-check-report" | "task-start-execute" | "task-close-execute";
 
 export type HarnessAction =
   | "read_status"
@@ -63,6 +63,18 @@ export function checkGate(input: GateCheckInput): GateCheckResult {
     };
   }
 
+  if (input.mode === "task-start-execute"
+    && input.tag === "task_start"
+    && taskStartExecuteActions.has(input.requestedAction)) {
+    return {
+      allowed: true,
+      reason: "action is inside task start execution scope",
+      nextState: "execute",
+      tag: input.tag,
+      requestedAction: input.requestedAction
+    };
+  }
+
   return {
     allowed: false,
     reason: "write action is outside read/check/report scope",
@@ -71,6 +83,13 @@ export function checkGate(input: GateCheckInput): GateCheckResult {
     requestedAction: input.requestedAction
   };
 }
+
+const taskStartExecuteActions = new Set<HarnessAction>([
+  "read_status",
+  "check_gate",
+  "create_report",
+  "create_branch"
+]);
 
 const taskCloseExecuteActions = new Set<HarnessAction>([
   "read_status",
