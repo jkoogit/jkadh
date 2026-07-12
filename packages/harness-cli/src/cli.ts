@@ -10,6 +10,7 @@ import { readInternalGitStatus } from "./git/git-status.ts";
 import { readGitHubOpenStatus } from "./github/github-status.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
+import { buildTaskStartReport, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
 import { checkProjectAccess, loadProjectProfile } from "./projects/project-profile.ts";
 import { createReportDocument } from "./reports/create-report.ts";
 import { checkRequiredEnv } from "./security/env-check.ts";
@@ -89,7 +90,13 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "task" && command === "start") {
-    console.log(buildLifecycleReport("task_start").markdown);
+    const taskStartArgs = argv.slice(2);
+    const blockIndex = taskStartArgs.indexOf("--block");
+    const input = blockIndex >= 0 && taskStartArgs[blockIndex + 1]
+      ? parseTaskStartBlock(taskStartArgs[blockIndex + 1])
+      : parseTaskStartArgs(taskStartArgs);
+    const report = buildTaskStartReport(input);
+    console.log(report.markdown);
     return 0;
   }
 

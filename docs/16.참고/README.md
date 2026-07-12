@@ -15,6 +15,7 @@
 | REF-002 | [AI개발플랫폼 Harness 설계방향 논의정리](./REF-002_AI개발플랫폼_Harness_설계방향_논의정리.md) | Draft |
 | REF-003 | [Harness 태그기반 프로세스 자동화 검토](./REF-003_Harness_태그기반_프로세스_자동화_검토.md) | Draft |
 | REF-004 | [Harness 세션시작 사용방법](./REF-004_Harness_세션시작_사용방법.md) | Draft |
+| REF-005 | [Harness 태스크시작 사용방법](./REF-005_Harness_태스크시작_사용방법.md) | Draft |
 
 ## 포함 예정 문서
 
