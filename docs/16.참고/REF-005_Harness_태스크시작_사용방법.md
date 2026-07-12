@@ -51,7 +51,13 @@
 #태스크시작
 ```
 
-단독으로 입력하면 Harness는 현재 입력이 부족한 항목을 report로 표시한다. 작업을 바로 시작할 수 있도록 하려면 블록 형식을 권장한다.
+단독으로 입력하면 Harness는 현재 입력이 부족한 항목을 확인하고, 동의 후 진행할 수 있는 주문서 초안을 함께 출력한다.
+
+```text
+#태스크시작
+```
+
+출력된 주문서 초안이 맞으면 사용자는 동의하거나 필요한 항목만 수정해서 다시 요청한다. 작업을 바로 시작할 수 있도록 하려면 블록 형식을 권장한다.
 
 ```text
 #태스크시작{
@@ -136,7 +142,7 @@ s = task start support
 | 제외범위 | 입력 여부 확인 |
 | 완료조건 | 입력 여부 확인 |
 | 검증방법 | 입력 여부 확인 |
-| 준비 상태 | 필수 항목이 모두 있으면 `ready`, 누락이 있으면 `blocked` |
+| 준비 상태 | 필수 항목이 모두 있으면 `ready`, 누락이 있으면 `blocked`와 주문서 초안 출력 |
 | 추천 브랜치명 | Issue 번호와 작업범위를 기준으로 제안 |
 | 쓰기 작업 | `create_issue`, `create_branch`는 report에서 차단 항목으로 표시 |
 
@@ -163,6 +169,8 @@ s = task start support
 cd D:\dev\workspace\ai.codex\jkadh\packages\harness-cli
 node --experimental-strip-types src/cli.ts task start
 ```
+
+단독 실행 결과에는 `Suggested Order` 섹션이 포함된다.
 
 블록 입력을 CLI로 넘길 수도 있다.
 
@@ -195,6 +203,7 @@ node --experimental-strip-types src/cli.ts task start `
 |---|---|
 | `task start: ready` | 필수 항목이 모두 있어 작업 시작 기준을 충족한다. |
 | `task start: blocked` | 필수 항목이 누락되어 작업 경계가 확정되지 않았다. |
+| `Suggested Order` | 빈 입력이나 일부 누락 입력을 기준으로 Harness가 제안하는 주문서 초안이다. |
 | `task identifier` | 연결된 Issue 또는 WorkOrder다. |
 | `scope` | 이번 태스크에서 수행할 작업이다. |
 | `out of scope` | 이번 태스크에서 제외할 작업이다. |
@@ -210,7 +219,8 @@ node --experimental-strip-types src/cli.ts task start `
 | 상황 | 다음 처리 |
 |---|---|
 | `ready`이고 작업 범위가 맞음 | 구현 작업 진행 |
-| `blocked`이고 누락 항목이 있음 | 누락 항목을 채워 다시 `#태스크시작` |
+| `blocked`이고 주문서 초안이 적절함 | 초안에 동의한다고 답하고 진행 |
+| `blocked`이고 누락 항목이 있음 | 누락 항목을 채우거나 주문서 초안을 수정해 다시 `#태스크시작` |
 | 범위가 너무 큼 | `작업범위`, `제외범위`, `완료조건`을 좁혀 재주문 |
 | 구현 완료 | `#태스크정리` |
 | PR 병합 또는 브랜치 승급 필요 | `#태스크승급` |
@@ -220,5 +230,6 @@ node --experimental-strip-types src/cli.ts task start `
 | 작업일시 | 관련 Issue | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |
 |---|---|---|---|---|---|---|---|
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Create | Harness `#태스크시작` 사용방법 문서 작성 |
+| 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | 빈 `#태스크시작` 입력 시 주문서 초안 출력 흐름 반영 |
 
 [목차로 이동](#목차)

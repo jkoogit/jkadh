@@ -17,6 +17,7 @@ export interface TaskStartReport {
     input: TaskStartInput;
     missing: string[];
     recommendedBranchName?: string;
+    suggestedOrder?: string;
   };
   blockedActions: string[];
 }
@@ -79,6 +80,7 @@ export function parseTaskStartBlock(block: string): TaskStartInput {
 
 export function buildTaskStartReport(input: TaskStartInput): TaskStartReport {
   const missing = missingFields(input);
+  const suggestedOrder = missing.length > 0 ? buildSuggestedTaskStartOrder(input) : undefined;
   const recommendedBranchName = input.issueNumber && input.scope
     ? `task_codex/${String(input.issueNumber).padStart(3, "0")}-${slugifyScope(input.scope)}`
     : undefined;
@@ -116,7 +118,7 @@ export function buildTaskStartReport(input: TaskStartInput): TaskStartReport {
       {
         name: "start readiness",
         status: status === "ready" ? "pass" : "blocked",
-        detail: status === "ready" ? "ready" : `missing: ${missing.join("; ")}`
+        detail: status === "ready" ? "ready" : `suggested order generated; missing: ${missing.join("; ")}`
       },
       {
         name: "recommended branch",
@@ -130,18 +132,43 @@ export function buildTaskStartReport(input: TaskStartInput): TaskStartReport {
       }
     ]
   });
+  const markdown = suggestedOrder
+    ? `${report.markdown}\n## Suggested Order\n\n동의하면 아래 주문서를 기준으로 진행한다.\n\n\`\`\`text\n${suggestedOrder}\n\`\`\`\n`
+    : report.markdown;
 
   return {
     command: "task start",
     status,
-    markdown: report.markdown,
+    markdown,
     json: {
       input,
       missing,
-      recommendedBranchName
+      recommendedBranchName,
+      suggestedOrder
     },
     blockedActions
   };
+}
+
+function buildSuggestedTaskStartOrder(input: TaskStartInput): string {
+  const issue = input.issueNumber ? `#${input.issueNumber}` : "";
+  const workOrder = input.workOrderId ?? "";
+  const scope = input.scope ?? "Harness #태스크시작 빈 입력 시 자동 주문서 제안 기능을 구현한다.";
+  const outOfScope = input.outOfScope ?? "Issue 자동 생성, 브랜치 자동 생성, PR 생성, PR 병합, dev/stg/main 승급은 제외한다.";
+  const completion = input.completionCriteria
+    ?? "#태스크시작 단독 실행 시 누락 항목만 표시하지 않고 동의 가능한 주문서 초안이 함께 출력된다.";
+  const verification = input.verificationMethod ?? "npm test, npm run check, CLI dry-run으로 확인한다.";
+  const identifierLine = issue ? `이슈: ${issue}` : `작업지시: ${workOrder || "확인필요"}`;
+
+  return [
+    "#태스크시작{",
+    identifierLine,
+    `작업범위: ${scope}`,
+    `제외범위: ${outOfScope}`,
+    `완료조건: ${completion}`,
+    `검증방법: ${verification}`,
+    "}"
+  ].join("\n");
 }
 
 function missingFields(input: TaskStartInput): string[] {

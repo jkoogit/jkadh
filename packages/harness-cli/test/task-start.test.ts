@@ -47,7 +47,19 @@ test("task start report is blocked when required inputs are missing", () => {
   });
 
   assert.equal(report.status, "blocked");
-  assert.match(report.markdown, /missing: issue or work order; out of scope; completion criteria; verification method/);
+  assert.match(report.markdown, /suggested order generated; missing: issue or work order; out of scope; completion criteria; verification method/);
+  assert.match(report.markdown, /## Suggested Order/);
+  assert.match(report.markdown, /작업범위: Harness CLI task start/);
+  assert.match(report.json.suggestedOrder ?? "", /#태스크시작\{/);
+});
+
+test("task start report suggests an order when input is empty", () => {
+  const report = buildTaskStartReport({});
+
+  assert.equal(report.status, "blocked");
+  assert.match(report.markdown, /동의하면 아래 주문서를 기준으로 진행한다/);
+  assert.match(report.json.suggestedOrder ?? "", /작업지시: 확인필요/);
+  assert.match(report.json.suggestedOrder ?? "", /완료조건:/);
 });
 
 test("task start block parser accepts Korean word aliases", () => {
