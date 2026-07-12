@@ -18,7 +18,7 @@ import { checkProjectAccess, loadProjectProfile } from "./projects/project-profi
 import { createReportDocument } from "./reports/create-report.ts";
 import { checkRequiredEnv } from "./security/env-check.ts";
 import { buildSessionPlan } from "./session/session-plan.ts";
-import { parseHarnessTag } from "./tags/tag-adapter.ts";
+import { parseHarnessTagCommand } from "./tags/tag-adapter.ts";
 
 const requiredEnvNames = [
   "GITHUB_TOKEN",
@@ -35,7 +35,7 @@ function printUsage(): void {
   jkadh task start [--execute --branch <branch>]
   jkadh task close [--execute --path <path> --message <message> --pr-title <title>]
   jkadh task promote [--target-commit <sha> --target-branches dev,stg --execute]
-  jkadh tag <#세션시작|#태스크시작|#태스크정리|#태스크승급|#세션정리>
+  jkadh tag <#세션시작|#태스크시작|#태스크정리|#태스크승급|#세션정리>[.보고]
   jkadh gate check <tag> <action>
   jkadh report create
 `);
@@ -151,16 +151,15 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "tag" && command) {
-    const tag = parseHarnessTag(command);
-    if (!tag) {
+    const parsed = parseHarnessTagCommand(command);
+    if (!parsed) {
       console.error(`Unsupported Harness tag: ${command}`);
       return 1;
     }
-    if (tag === "session_start") {
+    if (parsed.tag === "session_start") {
       return run(["session", "start"]);
     }
-    console.log(buildLifecycleReport(tag).markdown);
-    return 0;
+    return run(tagCommandArgs(parsed.tag, parsed.mode, argv.slice(2)));
   }
 
   if (scope === "gate" && command === "check") {
@@ -225,4 +224,20 @@ function findRelatedIssue(issues: { number: number; title: string }[], recommend
 
 function normalizeKoreanSearchText(value: string): string {
   return value.toLowerCase().replace(/\s+/g, " ");
+}
+
+function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report", args: string[]): string[] {
+  if (tag === "task_start") {
+    return mode === "execute" ? ["task", "start", "--execute", ...args] : ["task", "start", ...args];
+  }
+  if (tag === "task_close") {
+    return mode === "execute" ? ["task", "close", "--execute", ...args] : ["task", "close", ...args];
+  }
+  if (tag === "task_promote") {
+    return mode === "execute" ? ["task", "promote", "--execute", ...args] : ["task", "promote", ...args];
+  }
+  if (tag === "session_close") {
+    return mode === "execute" ? ["session", "close", "--execute", ...args] : ["session", "close", ...args];
+  }
+  return ["report", "create"];
 }
