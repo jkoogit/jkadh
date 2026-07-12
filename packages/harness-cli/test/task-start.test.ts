@@ -41,6 +41,8 @@ test("task start arg parser accepts execution options", () => {
     "--execute",
     "--branch",
     "task_codex/064-harness-task-start-execute",
+    "--issue-title",
+    "Harness task start execution mode",
     "--start-point",
     "origin/main"
   ]);
@@ -48,6 +50,7 @@ test("task start arg parser accepts execution options", () => {
   assert.deepEqual(input.execution, {
     enabled: true,
     branchName: "task_codex/064-harness-task-start-execute",
+    issueTitle: "Harness task start execution mode",
     startPoint: "origin/main"
   });
 });
@@ -177,7 +180,8 @@ test("task start execution creates and checks out requested branch", () => {
   });
 
   assert.equal(result.status, "executed");
-  assert.deepEqual(result.steps.map((step) => step.action), ["create_branch"]);
+  assert.deepEqual(result.steps.map((step) => step.action), ["create_issue", "create_branch"]);
+  assert.equal(result.steps[0].status, "skipped");
   assert.equal(calls[0], "git switch -c task_codex/064-harness-task-start-execute origin/main");
 });
 
@@ -201,5 +205,34 @@ test("task start execution uses recommended branch when branch is omitted", () =
   });
 
   assert.equal(result.status, "executed");
+  assert.equal(result.steps[0].status, "skipped");
   assert.equal(calls[0], "git switch -c task_codex/064-harness-cli-task-start origin/main");
+});
+
+test("task start execution creates an issue before creating a branch when issue is omitted", () => {
+  const calls: string[] = [];
+  const result = executeTaskStart({
+    workOrderId: "Harness cleanup",
+    scope: "Harness cleanup",
+    outOfScope: "PR merge",
+    completionCriteria: "branch is created",
+    verificationMethod: "npm test",
+    execution: {
+      enabled: true,
+      startPoint: "origin/main"
+    }
+  }, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "gh" && args[0] === "issue" && args[1] === "create") {
+        return "https://github.com/jkoogit/jkadh/issues/70";
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "executed");
+  assert.deepEqual(result.steps.map((step) => step.action), ["create_issue", "create_branch"]);
+  assert.equal(calls[0], "gh issue create --title Harness cleanup --body ## Scope\n\nHarness cleanup\n\n## Out Of Scope\n\nPR merge\n\n## Completion\n\nbranch is created\n\n## Verification\n\nnpm test");
+  assert.equal(calls[1], "git switch -c task_codex/070-harness-cleanup origin/main");
 });

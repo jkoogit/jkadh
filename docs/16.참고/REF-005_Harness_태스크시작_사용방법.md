@@ -1,5 +1,17 @@
 # REF-005 Harness 태스크시작 사용방법
 
+## 현행 구현 기준
+
+2026-07-13 현재 채팅 태그 `#태스크시작`의 기본 동작은 실행모드다. 보고만 필요하면 `#태스크시작.보고`를 사용한다.
+
+실행모드는 다음 순서로 동작한다.
+
+1. Issue 번호가 있으면 기존 Issue를 사용한다.
+2. Issue 번호가 없고 WorkOrder 또는 작업 범위가 있으면 GitHub Issue를 생성한다.
+3. Issue 번호와 작업 범위를 기준으로 작업 브랜치를 생성하고 checkout한다.
+
+Issue는 채팅 세션과 같은 생명주기를 가진다. 첫 태스크 시작에서 만들고, 세션 종료 시점의 `#세션정리`에서 제목/본문 현행화와 종료를 처리한다.
+
 | 항목 | 값 |
 |---|---|
 | 문서 ID | REF-005 |
@@ -32,7 +44,7 @@
 
 본 문서는 채팅 세션에서 `#태스크시작` 태그를 사용할 때 Harness가 확인하는 입력 항목과 사용 방법을 정리한다.
 
-`#태스크시작`은 작업 실행 전에 작업 식별자, 범위, 제외 범위, 완료 조건, 검증 방법을 명확히 하는 태그다. 현재 Harness CLI의 `task start` report는 준비 상태를 확인하고 추천 브랜치명을 제안하지만, 자체적으로 Issue 생성이나 브랜치 생성을 수행하지 않는다.
+`#태스크시작`은 작업 실행 전에 작업 식별자, 범위, 제외 범위, 완료 조건, 검증 방법을 명확히 하는 태그다. 현재 Harness CLI의 `task start` report는 준비 상태를 확인하고 추천 브랜치명을 제안한다. 실행모드에서는 Issue가 없으면 GitHub Issue를 생성하고, 해당 Issue 번호 기준 작업 브랜치를 생성/checkout한다.
 
 ## 2. 사용할 때
 
@@ -149,7 +161,7 @@ s = task start support
 
 ## 7. Harness가 하지 않는 일
 
-기본 `#태스크시작` report 자체는 다음 작업을 하지 않는다.
+`#태스크시작.보고` 또는 CLI report-only 실행은 다음 작업을 하지 않는다.
 
 - Issue 생성
 - 작업 브랜치 생성
@@ -160,9 +172,9 @@ s = task start support
 - PR 병합
 - `dev`, `stg`, `main` 승급
 
-구현 작업은 `#태스크시작` report가 ready인 것을 확인한 뒤 Codex 작업으로 진행한다. 커밋, push, PR, 승급은 별도 태그 또는 명시 주문이 있을 때만 수행한다.
+구현 작업은 `#태스크시작` 실행이 ready인 것을 확인한 뒤 Codex 작업으로 진행한다. 커밋, push, PR, 승급은 별도 태그 또는 명시 주문이 있을 때만 수행한다.
 
-작업 브랜치 생성과 checkout은 `--execute` 실행모드에서만 수행한다. Issue 생성은 실행모드에서도 수행하지 않는다.
+Issue 생성, 작업 브랜치 생성과 checkout은 `--execute` 실행모드에서 수행한다. 기존 Issue가 있으면 Issue 생성 단계는 건너뛴다.
 
 ## 8. CLI 직접 실행 방법
 
@@ -200,7 +212,7 @@ node --experimental-strip-types src/cli.ts task start `
 
 ## 9. 실행모드
 
-기본 `task start`는 report-only로 동작한다. 작업 브랜치 생성과 checkout을 실행하려면 `--execute`를 명시한다.
+CLI 직접 실행 기준의 기본 `task start`는 report-only로 동작한다. 채팅 태그 `#태스크시작`은 기본 실행모드이며, 보고만 필요하면 `#태스크시작.보고`를 사용한다. CLI에서 Issue 생성과 작업 브랜치 생성/checkout을 실행하려면 `--execute`를 명시한다.
 
 실행모드는 다음 조건을 요구한다.
 
@@ -208,6 +220,7 @@ node --experimental-strip-types src/cli.ts task start `
 |---|---|---|
 | `--execute` | 필수 | 실행모드 진입 |
 | `--branch` | 선택 | 생성/checkout할 브랜치명. 없으면 추천 브랜치명 사용 |
+| `--issue-title` | 선택 | Issue 생성 시 사용할 제목. 없으면 WorkOrder 또는 작업범위를 사용 |
 | `--start-point` | 선택 | 브랜치를 시작할 기준. 기본값 `origin/main` |
 
 예시는 다음과 같다.
@@ -220,17 +233,18 @@ node --experimental-strip-types src/cli.ts task start `
   --completion "Branch is created and checked out" `
   --verification "npm test and npm run check" `
   --execute `
+  --issue-title "Harness task start execution mode" `
   --branch "task_codex/064-harness-task-start-execute" `
   --start-point "origin/main"
 ```
 
 실행모드는 다음 작업만 수행한다.
 
+- `gh issue create --title <title> --body <body>`: Issue 번호가 없을 때만 수행
 - `git switch -c <branch> <start-point>`
 
 실행모드는 다음 작업을 수행하지 않는다.
 
-- Issue 생성
 - WorkOrder 영속 저장
 - PR 생성 또는 머지
 - `dev`, `stg`, `main` 승급

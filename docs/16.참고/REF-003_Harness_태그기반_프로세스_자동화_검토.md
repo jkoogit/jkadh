@@ -1,5 +1,19 @@
 # REF-003 Harness 태그기반 프로세스 자동화 검토
 
+## 현행 구현 기준
+
+2026-07-13 현재 Harness 태그의 기본 동작은 실행모드다. 보고만 필요하면 태그 뒤에 `.보고` suffix를 붙인다.
+
+| 태그 | 실행 책임 |
+|---|---|
+| `#세션시작` | 원격 `dev/stg/main` 정합성, 작업트리, 최신 회고, Backlog, 열린 Issue/PR, 다음 작업 후보를 보고한다. 상태 변경은 하지 않는다. |
+| `#태스크시작` | 첫 태스크 시작 시 Issue가 없으면 GitHub Issue를 생성하고, 해당 Issue 번호 기준 작업 브랜치를 생성/checkout한다. 기존 Issue가 있으면 그 Issue를 사용한다. |
+| `#태스크정리` | 태스크 변경사항을 commit/push하고 PR을 `dev` 대상으로 생성/갱신한 뒤 merge한다. Issue 종료와 `stg/main` 승급은 하지 않는다. |
+| `#태스크승급` | `dev`에 merge된 태스크 커밋을 `stg`, `main`으로 fast-forward 승급한다. PR 생성/merge와 Issue 종료는 하지 않는다. |
+| `#세션정리` | 세션명, Issue 제목/본문, 회고, 남은 Backlog/Issue/PR을 현행화하고 검증된 Issue만 종료한다. |
+
+Issue는 채팅 세션과 같은 생명주기를 가진다. 첫 `#태스크시작`에서 만들고, 세션 종료 시점의 `#세션정리`에서 내용 현행화와 종료를 처리한다.
+
 | 항목 | 값 |
 |---|---|
 | 문서 ID | REF-003 |
@@ -149,7 +163,7 @@ task_close:
 
 task_promote:
   merge_pr: false
-  promote_dev_stg_main: true
+  promote_stg_main: true
   close_issue: false
 
 session_close:

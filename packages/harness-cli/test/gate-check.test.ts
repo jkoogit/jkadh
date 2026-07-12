@@ -43,20 +43,26 @@ test("gate check allows task close execution actions only in task close executio
   assert.equal(blocked.allowed, false);
 });
 
-test("gate check allows only branch creation in task start execution mode", () => {
-  const allowed = checkGate({
+test("gate check allows issue and branch creation in task start execution mode", () => {
+  const allowedIssue = checkGate({
+    mode: "task-start-execute",
+    requestedAction: "create_issue",
+    tag: "task_start"
+  });
+  const allowedBranch = checkGate({
     mode: "task-start-execute",
     requestedAction: "create_branch",
     tag: "task_start"
   });
   const blocked = checkGate({
     mode: "task-start-execute",
-    requestedAction: "create_issue",
+    requestedAction: "create_pr",
     tag: "task_start"
   });
 
-  assert.equal(allowed.allowed, true);
-  assert.equal(allowed.reason, "action is inside task start execution scope");
+  assert.equal(allowedIssue.allowed, true);
+  assert.equal(allowedBranch.allowed, true);
+  assert.equal(allowedBranch.reason, "action is inside task start execution scope");
   assert.equal(blocked.allowed, false);
 });
 

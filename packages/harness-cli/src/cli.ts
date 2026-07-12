@@ -32,9 +32,9 @@ function printUsage(): void {
   console.log(`Usage:
   jkadh session start [project_id]
   jkadh session close [--execute --verified-issue <number>]
-  jkadh task start [--execute --branch <branch>]
-  jkadh task close [--execute --path <path> --message <message> --pr-title <title>]
-  jkadh task promote [--target-commit <sha> --target-branches dev,stg --execute]
+  jkadh task start [--execute --issue-title <title> --branch <branch>]
+  jkadh task close [--execute --path <path> --message <message> --pr-title <title> --base dev]
+  jkadh task promote [--target-commit <sha> --target-branches stg,main --execute]
   jkadh tag <#세션시작|#태스크시작|#태스크정리|#태스크승급|#세션정리>[.보고]
   jkadh gate check <tag> <action>
   jkadh report create

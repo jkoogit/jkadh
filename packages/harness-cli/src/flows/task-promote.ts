@@ -53,7 +53,7 @@ const executionActions: HarnessAction[] = ["promote_branch"];
 
 export function parseTaskPromoteArgs(args: string[]): TaskPromoteInput {
   const input: TaskPromoteInput = {
-    targetBranches: ["dev", "stg"]
+    targetBranches: ["stg", "main"]
   };
   const execution: TaskPromoteExecutionOptions = {
     enabled: false
