@@ -4,6 +4,9 @@ import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 
 export interface TaskPromoteInput {
+  agentId?: string;
+  sessionId?: string;
+  taskId?: string;
   targetCommit?: string;
   targetBranches: string[];
   verificationResult?: string;
@@ -75,6 +78,18 @@ export function parseTaskPromoteArgs(args: string[]): TaskPromoteInput {
     }
     if (key === "--target-commit") {
       input.targetCommit = value;
+      index += 1;
+    }
+    if (key === "--agent-id") {
+      input.agentId = value;
+      index += 1;
+    }
+    if (key === "--session-id") {
+      input.sessionId = value;
+      index += 1;
+    }
+    if (key === "--task-id") {
+      input.taskId = value;
       index += 1;
     }
     if (key === "--target-branches") {

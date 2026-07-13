@@ -15,6 +15,8 @@ export type HarnessAction =
   | "push_branch"
   | "create_pr"
   | "merge_pr"
+  | "write_retrospective"
+  | "update_issue"
   | "promote_branch"
   | "close_issue";
 
@@ -142,5 +144,12 @@ const sessionCloseExecuteActions = new Set<HarnessAction>([
   "read_status",
   "check_gate",
   "create_report",
+  "write_retrospective",
+  "update_issue",
+  "commit_changes",
+  "push_branch",
+  "create_pr",
+  "merge_pr",
+  "promote_branch",
   "close_issue"
 ]);

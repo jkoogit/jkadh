@@ -4,6 +4,9 @@ import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 
 export interface TaskStartInput {
+  agentId?: string;
+  sessionId?: string;
+  taskName?: string;
   issueNumber?: number;
   workOrderId?: string;
   scope?: string;
@@ -74,6 +77,18 @@ export function parseTaskStartArgs(args: string[]): TaskStartInput {
     }
     if (key === "--issue") {
       input.issueNumber = Number(value);
+      index += 1;
+    }
+    if (key === "--agent-id") {
+      input.agentId = value;
+      index += 1;
+    }
+    if (key === "--session-id") {
+      input.sessionId = value;
+      index += 1;
+    }
+    if (key === "--task-name") {
+      input.taskName = value;
       index += 1;
     }
     if (key === "--work-order") {
@@ -339,6 +354,12 @@ function applyTaskStartField(input: TaskStartInput, key: string, value: string):
 function normalizeTaskStartField(key: string): keyof TaskStartInput | undefined {
   const normalized = key.replace(/\s+/g, "").toLowerCase();
   const aliases: Record<string, keyof TaskStartInput> = {
+    agent: "agentId",
+    agentid: "agentId",
+    session: "sessionId",
+    sessionid: "sessionId",
+    task: "taskName",
+    taskname: "taskName",
     i: "issueNumber",
     issue: "issueNumber",
     이슈: "issueNumber",

@@ -30,6 +30,16 @@ test("tag adapter marks dot report suffix as report mode", () => {
   assert.equal(parseHarnessTag("#태스크정리.보고"), "task_close");
 });
 
+test("tag adapter accepts inline block tags", () => {
+  assert.deepEqual(parseHarnessTagCommand(`#세션시작{
+세션번호: 010
+세션명: 010_HCP
+}`), {
+    tag: "session_start",
+    mode: "execute"
+  });
+});
+
 test("tag adapter rejects unsupported tags", () => {
   assert.equal(parseHarnessTag("#알수없음"), undefined);
   assert.equal(parseHarnessTagCommand("#알수없음.보고"), undefined);

@@ -39,7 +39,9 @@ test("task close arg parser accepts execution options", () => {
     "--message",
     "feat: add task close execution mode",
     "--pr-title",
-    "Harness task close execution mode",
+    "[064]_(001)_Harness_task_close_execution_mode",
+    "--related-issue",
+    "64",
     "--base",
     "main",
     "--no-merge"
@@ -49,7 +51,8 @@ test("task close arg parser accepts execution options", () => {
     enabled: true,
     paths: ["packages/harness-cli/src/flows/task-close.ts"],
     commitMessage: "feat: add task close execution mode",
-    prTitle: "Harness task close execution mode",
+    prTitle: "[064]_(001)_Harness_task_close_execution_mode",
+    relatedIssueNumber: 64,
     baseBranch: "main",
     mergePr: false
   });
@@ -71,7 +74,9 @@ test("task close execution defaults PR base to dev", () => {
     "--message",
     "feat: add task close execution mode",
     "--pr-title",
-    "Harness task close execution mode"
+    "[064]_(001)_Harness_task_close_execution_mode",
+    "--related-issue",
+    "64"
   ]);
 
   assert.equal(input.execution?.baseBranch, "dev");
@@ -150,7 +155,7 @@ test("task close execution blocks when required execution options are missing", 
   }, "repo");
 
   assert.equal(result.status, "blocked");
-  assert.match(result.markdown, /missing execution options: path; message; pr-title/);
+  assert.match(result.markdown, /missing execution options: path; message; pr-title; related-issue/);
 });
 
 test("task close execution runs commit push PR create and optional merge", () => {
@@ -164,7 +169,8 @@ test("task close execution runs commit push PR create and optional merge", () =>
       enabled: true,
       paths: ["packages/harness-cli/src/flows/task-close.ts"],
       commitMessage: "feat: add task close execution mode",
-      prTitle: "Harness task close execution mode",
+      prTitle: "[064]_(001)_Harness_task_close_execution_mode",
+      relatedIssueNumber: 64,
       baseBranch: "dev",
       mergePr: true
     }
@@ -192,7 +198,29 @@ test("task close execution runs commit push PR create and optional merge", () =>
   assert.match(calls.join("\n"), /git commit -m feat: add task close execution mode/);
   assert.match(calls.join("\n"), /git push origin task_codex\/064-harness-cli-minimal/);
   assert.match(calls.join("\n"), /gh pr create --base dev --head task_codex\/064-harness-cli-minimal/);
+  assert.match(calls.join("\n"), /Related #64/);
   assert.match(calls.join("\n"), /gh pr merge --merge --delete-branch=false/);
+});
+
+test("task close execution blocks non-compliant PR titles", () => {
+  const result = executeTaskClose({
+    completionSummary: "implemented task close report",
+    verificationResult: "npm test passed",
+    outOfScope: "promotion",
+    remainingWork: "none",
+    execution: {
+      enabled: true,
+      paths: ["packages/harness-cli/src/flows/task-close.ts"],
+      commitMessage: "feat: add task close execution mode",
+      prTitle: "Harness task close execution mode",
+      relatedIssueNumber: 64,
+      baseBranch: "dev",
+      mergePr: true
+    }
+  }, "repo");
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /missing execution options: compliant pr-title/);
 });
 
 test("task close execution updates existing PR before merge", () => {
@@ -206,7 +234,8 @@ test("task close execution updates existing PR before merge", () => {
       enabled: true,
       paths: ["packages/harness-cli/src/flows/task-close.ts"],
       commitMessage: "feat: add task close execution mode",
-      prTitle: "Harness task close execution mode",
+      prTitle: "[064]_(001)_Harness_task_close_execution_mode",
+      relatedIssueNumber: 64,
       baseBranch: "dev",
       mergePr: true
     }
@@ -224,7 +253,7 @@ test("task close execution updates existing PR before merge", () => {
   });
 
   assert.equal(result.status, "executed");
-  assert.match(calls.join("\n"), /gh pr edit --title Harness task close execution mode --body/);
+  assert.match(calls.join("\n"), /gh pr edit --title \[064\]_\(001\)_Harness_task_close_execution_mode --body/);
   assert.match(calls.join("\n"), /gh pr ready/);
   assert.match(calls.join("\n"), /gh pr merge --merge --delete-branch=false/);
 });

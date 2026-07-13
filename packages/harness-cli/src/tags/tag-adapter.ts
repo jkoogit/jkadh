@@ -22,8 +22,9 @@ export function parseHarnessTag(input: string): HarnessTag | undefined {
 export function parseHarnessTagCommand(input: string): ParsedHarnessTag | undefined {
   const [firstToken] = input.trim().split(/\s+/);
   const reportSuffix = ".보고";
-  const mode: HarnessTagMode = firstToken.endsWith(reportSuffix) ? "report" : "execute";
-  const normalizedToken = mode === "report" ? firstToken.slice(0, -reportSuffix.length) : firstToken;
+  const tagToken = firstToken.replace(/\{[\s\S]*$/, "");
+  const mode: HarnessTagMode = tagToken.endsWith(reportSuffix) ? "report" : "execute";
+  const normalizedToken = mode === "report" ? tagToken.slice(0, -reportSuffix.length) : tagToken;
   const tag = tagMap.get(normalizedToken);
   return tag ? { tag, mode } : undefined;
 }

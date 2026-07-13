@@ -4,6 +4,9 @@ import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 
 export interface TaskCloseInput {
+  agentId?: string;
+  sessionId?: string;
+  taskId?: string;
   completionSummary?: string;
   verificationResult?: string;
   remainingWork?: string;
@@ -18,6 +21,7 @@ export interface TaskCloseExecutionOptions {
   commitMessage?: string;
   prTitle?: string;
   prBody?: string;
+  relatedIssueNumber?: number;
   baseBranch: string;
   mergePr: boolean;
 }
@@ -89,6 +93,18 @@ export function parseTaskCloseArgs(args: string[]): TaskCloseInput {
       input.completionSummary = value;
       index += 1;
     }
+    if (key === "--agent-id") {
+      input.agentId = value;
+      index += 1;
+    }
+    if (key === "--session-id") {
+      input.sessionId = value;
+      index += 1;
+    }
+    if (key === "--task-id") {
+      input.taskId = value;
+      index += 1;
+    }
     if (key === "--verification") {
       input.verificationResult = value;
       index += 1;
@@ -121,13 +137,20 @@ export function parseTaskCloseArgs(args: string[]): TaskCloseInput {
       execution.prBody = value;
       index += 1;
     }
+    if (key === "--related-issue") {
+      const issueNumber = Number(value.replace(/^#/, ""));
+      if (Number.isFinite(issueNumber)) {
+        execution.relatedIssueNumber = issueNumber;
+      }
+      index += 1;
+    }
     if (key === "--base") {
       execution.baseBranch = value;
       index += 1;
     }
   }
 
-  if (execution.enabled || execution.paths.length > 0 || execution.commitMessage || execution.prTitle || execution.prBody) {
+  if (execution.enabled || execution.paths.length > 0 || execution.commitMessage || execution.prTitle || execution.prBody || execution.relatedIssueNumber) {
     input.execution = execution;
   }
 
@@ -449,11 +472,21 @@ function missingExecutionOptions(execution: TaskCloseExecutionOptions): string[]
   if (!execution.prTitle) {
     missing.push("pr-title");
   }
+  if (execution.prTitle && !isCompliantPrTitle(execution.prTitle)) {
+    missing.push("compliant pr-title");
+  }
+  if (!execution.relatedIssueNumber) {
+    missing.push("related-issue");
+  }
   return missing;
 }
 
+function isCompliantPrTitle(title: string): boolean {
+  return /^\[\d{3}\]_\(\d{3}\)_.+/.test(title);
+}
+
 function buildDefaultPrBody(execution: TaskCloseExecutionOptions): string {
-  return [
+  const body = [
     "## Summary",
     "",
     execution.commitMessage ?? "Task close execution",
@@ -461,7 +494,13 @@ function buildDefaultPrBody(execution: TaskCloseExecutionOptions): string {
     "## Changed Paths",
     "",
     ...execution.paths.map((path) => `- ${path}`)
-  ].join("\n");
+  ];
+
+  if (execution.relatedIssueNumber) {
+    body.push("", `Related #${execution.relatedIssueNumber}`);
+  }
+
+  return body.join("\n");
 }
 
 function buildExecutionResult(status: TaskCloseExecutionResult["status"], steps: TaskCloseExecutionResult["steps"]): TaskCloseExecutionResult {
