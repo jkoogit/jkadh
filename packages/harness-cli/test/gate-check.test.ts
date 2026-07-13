@@ -83,19 +83,25 @@ test("gate check allows only branch promotion in task promote execution mode", (
   assert.equal(blocked.allowed, false);
 });
 
-test("gate check allows only issue close in session close execution mode", () => {
-  const allowed = checkGate({
+test("gate check allows retrospective write and issue close in session close execution mode", () => {
+  const allowedRetrospective = checkGate({
+    mode: "session-close-execute",
+    requestedAction: "write_retrospective",
+    tag: "session_close"
+  });
+  const allowedIssueClose = checkGate({
     mode: "session-close-execute",
     requestedAction: "close_issue",
     tag: "session_close"
   });
   const blocked = checkGate({
     mode: "session-close-execute",
-    requestedAction: "merge_pr",
+    requestedAction: "create_issue",
     tag: "session_close"
   });
 
-  assert.equal(allowed.allowed, true);
-  assert.equal(allowed.reason, "action is inside session close execution scope");
+  assert.equal(allowedRetrospective.allowed, true);
+  assert.equal(allowedIssueClose.allowed, true);
+  assert.equal(allowedIssueClose.reason, "action is inside session close execution scope");
   assert.equal(blocked.allowed, false);
 });

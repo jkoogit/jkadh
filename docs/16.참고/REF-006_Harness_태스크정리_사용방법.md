@@ -176,8 +176,9 @@ CLI 직접 실행 기준의 기본 `task close`는 report-only로 동작한다. 
 | `--path` | 필수 | staging할 파일 또는 디렉터리. 여러 번 지정 가능 |
 | `--paths` | 선택 | 쉼표로 구분한 staging 대상 목록 |
 | `--message` | 필수 | 커밋 메시지 |
-| `--pr-title` | 필수 | PR 제목 |
+| `--pr-title` | 필수 | PR 제목. `[이슈번호]_(이슈내PR번호)_<PR명>` 형식을 사용한다. |
 | `--pr-body` | 선택 | PR 본문. 없으면 기본 본문 생성 |
+| `--related-issue` | 필수 | PR 본문에 `Related #이슈번호`를 넣기 위한 GitHub Issue 번호 |
 | `--base` | 선택 | PR base 브랜치. 기본값 `dev` |
 | `--no-merge` | 선택 | PR 생성까지만 하고 머지는 생략 |
 
@@ -193,12 +194,15 @@ node --experimental-strip-types src/cli.ts task close `
   --path "packages/harness-cli/src/flows/task-close.ts" `
   --path "packages/harness-cli/test/task-close.test.ts" `
   --message "feat: add task close execution mode" `
-  --pr-title "Harness task close execution mode"
+  --pr-title "[064]_(001)_Harness_task_close_execution_mode" `
+  --related-issue 64
 ```
 
 실행모드는 `--path`로 지정한 대상만 stage한다. 무관한 untracked 파일이 섞이지 않도록 자동 `git add -A`는 사용하지 않는다.
 
 Issue 종료는 실행모드에서도 수행하지 않는다. Issue 종료는 `#세션정리`에서만 가능하다.
+
+PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나 `--related-issue`가 없으면 실행모드는 PR 생성 전에 차단된다.
 
 ## 10. 결과 해석 기준
 
@@ -234,5 +238,6 @@ Issue 종료는 실행모드에서도 수행하지 않는다. Issue 종료는 `#
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Create | Harness `#태스크정리` 사용방법 문서 작성 |
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리`를 PR 생성/머지 단계로 정리하고 Issue 종료는 `#세션정리` 전용으로 명시 |
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리` 실행모드 옵션과 안전한 path 기반 staging 기준 추가 |
+| 2026-07-13 | [#73](https://github.com/jkoogit/jkadh/issues/73) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리` 실행모드의 PR 제목 명명규칙과 `Related #이슈번호` 연결 조건 보강 |
 
 [목차로 이동](#목차)
