@@ -10,6 +10,9 @@
     "test": "node --test --experimental-strip-types test/*.test.ts",
     "check": "node --check --experimental-strip-types src/cli.ts"
   },
+  "dependencies": {
+    "pg": "^8.16.3"
+  },
   "engines": {
     "node": ">=22.6.0"
   }
