@@ -9,6 +9,9 @@ import { parseRetrospectiveDetail } from "./docs/retrospective-detail.ts";
 import { parseLatestRetrospective } from "./docs/retrospective-index.ts";
 import { readInternalGitStatus } from "./git/git-status.ts";
 import { readGitHubOpenStatus } from "./github/github-status.ts";
+import { runDbCheck } from "./db/db-check.ts";
+import { runDbMigrate } from "./db/db-migrate.ts";
+import { runDictionaryList } from "./db/dictionary.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "./flows/session-close.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
@@ -64,6 +67,9 @@ function printUsage(): void {
   jkadh hcp branch update --session-id <id> --task-id <id> --branch-name <name>
   jkadh hcp backlog add|update|delete
   jkadh hcp archived cleanup [--older-than-days 90 --keep 20 --dry-run]
+  jkadh db check
+  jkadh db migrate [--dry-run|--execute]
+  jkadh dictionary list
   jkadh report create
 `);
 }
@@ -287,6 +293,40 @@ async function run(argv: string[]): Promise<number> {
 
   if (scope === "hcp") {
     return runHcpCommand(command, argv.slice(2));
+  }
+
+  if (scope === "db" && command === "check") {
+    try {
+      const result = await runDbCheck(process.cwd());
+      console.log(result.markdown);
+      return result.status === "connected" ? 0 : 2;
+    } catch (error) {
+      console.log(buildDbErrorMarkdown("Harness CLI db check", error));
+      return 2;
+    }
+  }
+
+  if (scope === "db" && command === "migrate") {
+    try {
+      const options = parseDbMigrateArgs(argv.slice(2));
+      const result = await runDbMigrate(process.cwd(), options);
+      console.log(result.markdown);
+      return result.status === "blocked" ? 2 : 0;
+    } catch (error) {
+      console.log(buildDbErrorMarkdown("Harness CLI db migrate", error));
+      return 2;
+    }
+  }
+
+  if (scope === "dictionary" && command === "list") {
+    try {
+      const result = await runDictionaryList(process.cwd());
+      console.log(result.markdown);
+      return result.status === "listed" ? 0 : 2;
+    } catch (error) {
+      console.log(buildDbErrorMarkdown("Harness CLI dictionary list", error));
+      return 2;
+    }
   }
 
   if (scope === "gate" && command === "check") {
@@ -699,6 +739,24 @@ function requiredOption(options: Record<string, string>, key: string): string {
     throw new Error(`missing required option: --${key}`);
   }
   return value;
+}
+
+function parseDbMigrateArgs(args: string[]): { execute?: boolean } {
+  return {
+    execute: args.includes("--execute")
+  };
+}
+
+function buildDbErrorMarkdown(title: string, error: unknown): string {
+  const detail = error instanceof Error ? error.message : "unknown error";
+  const report = createReportDocument({
+    title,
+    summary: "Database command failed.",
+    checks: [
+      { name: "error", status: "blocked", detail }
+    ]
+  });
+  return report.markdown;
 }
 
 export function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report", args: string[]): string[] {
