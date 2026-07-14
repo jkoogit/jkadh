@@ -30,6 +30,12 @@ test("tag adapter marks dot report suffix as report mode", () => {
   assert.equal(parseHarnessTag("#태스크정리.보고"), "task_close");
 });
 
+test("tag adapter rejects unsupported task start suffixes", () => {
+  assert.equal(parseHarnessTagCommand("#태스크시작.번외"), undefined);
+  assert.equal(parseHarnessTagCommand("#태스크시작.번외.보고"), undefined);
+  assert.equal(parseHarnessTag("번외 #태스크시작"), undefined);
+});
+
 test("tag adapter accepts inline block tags", () => {
   assert.deepEqual(parseHarnessTagCommand(`#세션시작{
 세션번호: 010
