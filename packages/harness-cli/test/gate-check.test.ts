@@ -32,6 +32,11 @@ test("gate check allows task close execution actions only in task close executio
     requestedAction: "create_pr",
     tag: "task_close"
   });
+  const allowedDevMerge = checkGate({
+    mode: "task-close-execute",
+    requestedAction: "merge_pr_to_dev",
+    tag: "task_close"
+  });
   const blocked = checkGate({
     mode: "task-close-execute",
     requestedAction: "close_issue",
@@ -40,6 +45,7 @@ test("gate check allows task close execution actions only in task close executio
 
   assert.equal(allowed.allowed, true);
   assert.equal(allowed.reason, "action is inside task close execution scope");
+  assert.equal(allowedDevMerge.allowed, true);
   assert.equal(blocked.allowed, false);
 });
 

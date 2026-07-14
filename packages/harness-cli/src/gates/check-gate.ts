@@ -15,6 +15,7 @@ export type HarnessAction =
   | "push_branch"
   | "create_pr"
   | "merge_pr"
+  | "merge_pr_to_dev"
   | "write_retrospective"
   | "update_issue"
   | "promote_branch"
@@ -130,7 +131,8 @@ const taskCloseExecuteActions = new Set<HarnessAction>([
   "commit_changes",
   "push_branch",
   "create_pr",
-  "merge_pr"
+  "merge_pr",
+  "merge_pr_to_dev"
 ]);
 
 const taskPromoteExecuteActions = new Set<HarnessAction>([

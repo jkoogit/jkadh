@@ -4,7 +4,7 @@
 
 2026-07-13 현재 채팅 태그 `#태스크정리`의 기본 동작은 실행모드다. 보고만 필요하면 `#태스크정리.보고`를 사용한다.
 
-실행모드는 태스크 변경사항을 commit/push하고 PR을 `dev` 대상으로 생성/갱신한 뒤 merge한다. `stg`, `main` 반영은 `#태스크승급`에서 처리하며, Issue 종료는 `#세션정리`에서만 처리한다.
+실행모드는 태스크 변경사항을 commit/push하고 PR을 `dev` 대상으로 생성/갱신한 뒤 merge한다. 내부 실행 계획은 `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev` 순서로 표시한다. `stg`, `main` 반영은 `#태스크승급`에서 처리하며, Issue 종료는 `#세션정리`에서만 처리한다.
 
 | 항목 | 값 |
 |---|---|
@@ -112,8 +112,9 @@
 | 검증결과 | 입력 여부 확인 |
 | 제외범위 | 입력 여부 확인 |
 | 남은작업 | 입력 여부 확인 |
-| PR 준비 여부 | 필수 항목이 있고 남은작업이 없으면 커밋, push, PR 생성, PR 머지 준비 완료 |
-| 쓰기 작업 | `commit_changes`, `push_branch`, `create_pr`, `merge_pr` 대상 표시 |
+| PR 준비 여부 | 필수 항목이 있고 남은작업이 없으면 커밋, push, PR 생성, `dev` PR 머지 준비 완료 |
+| 실행 계획 | `commit_changes`, `push_branch`, `create_pr`, `merge_pr_to_dev` 순서 표시 |
+| 쓰기 작업 | `commit_changes`, `push_branch`, `create_pr`, `merge_pr_to_dev` 대상 표시 |
 
 ## 7. Harness가 하지 않는 일
 
@@ -124,7 +125,7 @@
 - PR 생성
 - PR 병합
 
-채팅 태그 기준으로는 기본 `#태스크정리`가 실행 의도다. CLI 직접 실행 기준에서는 `--execute`를 명시하고 실행 필수 옵션을 제공한 경우에만 커밋, push, PR 생성, PR 머지를 수행한다.
+채팅 태그 기준으로는 기본 `#태스크정리`가 실행 의도다. CLI 직접 실행 기준에서는 `--execute`를 명시하고 실행 필수 옵션을 제공한 경우에만 커밋, push, PR 생성, `dev` PR 머지를 수행한다.
 
 `#태스크정리`는 다음 작업을 하지 않는다.
 
@@ -180,7 +181,7 @@ CLI 직접 실행 기준의 기본 `task close`는 report-only로 동작한다. 
 | `--pr-body` | 선택 | PR 본문. 없으면 기본 본문 생성 |
 | `--related-issue` | 필수 | PR 본문에 `Related #이슈번호`를 넣기 위한 GitHub Issue 번호 |
 | `--base` | 선택 | PR base 브랜치. 기본값 `dev` |
-| `--no-merge` | 선택 | PR 생성까지만 하고 머지는 생략 |
+| `--no-merge` | 선택 | PR 생성까지만 하고 머지는 생략. 사용자가 명시한 경우에만 적용 |
 
 예시는 다음과 같다.
 
@@ -204,6 +205,8 @@ Issue 종료는 실행모드에서도 수행하지 않는다. Issue 종료는 `#
 
 PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나 `--related-issue`가 없으면 실행모드는 PR 생성 전에 차단된다.
 
+`merge_pr_to_dev` 단계에서 승인, 권한, 리뷰, 충돌 같은 게이트가 막히면 실행 결과는 `blocked`로 남긴다. 이 경우 Harness는 사용자에게 묻지 않고 자동으로 `--no-merge` 처리하거나 PR 생성까지만 완료한 것으로 축소 보고하지 않는다.
+
 ## 10. 결과 해석 기준
 
 대표 출력 항목의 의미는 다음과 같다.
@@ -216,7 +219,8 @@ PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나
 | `completion summary` | 완료 내용이다. |
 | `verification result` | 검증 결과다. |
 | `remaining work` | 남은 작업이다. |
-| `PR readiness` | 커밋, push, PR 생성, PR 머지 준비가 되었는지 여부다. |
+| `PR readiness` | 커밋, push, PR 생성, `dev` PR 머지 준비가 되었는지 여부다. |
+| `execution plan` | 실행 시 수행할 내부 단계다. 기본값은 `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev`다. |
 | `task close execution` | `--execute` 실행 결과다. |
 | `Suggested Order` | 빈 입력이나 일부 누락 입력을 기준으로 Harness가 제안하는 정리 주문서 초안이다. |
 
@@ -226,7 +230,7 @@ PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나
 
 | 상황 | 다음 처리 |
 |---|---|
-| `ready`이고 남은 작업이 없음 | 커밋, push, PR 생성/머지 진행 후 `#태스크승급` |
+| `ready`이고 남은 작업이 없음 | 커밋, push, PR 생성/`dev` 머지 진행 후 `#태스크승급` |
 | `blocked`이고 주문서 초안이 적절함 | 초안에 동의한다고 답하고 진행 |
 | `blocked`이고 누락 항목이 있음 | 누락 항목을 채우거나 주문서 초안을 수정해 다시 `#태스크정리` |
 | 남은 작업이 있음 | 구현을 계속 진행 |
@@ -239,5 +243,6 @@ PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리`를 PR 생성/머지 단계로 정리하고 Issue 종료는 `#세션정리` 전용으로 명시 |
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리` 실행모드 옵션과 안전한 path 기반 staging 기준 추가 |
 | 2026-07-13 | [#73](https://github.com/jkoogit/jkadh/issues/73) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리` 실행모드의 PR 제목 명명규칙과 `Related #이슈번호` 연결 조건 보강 |
+| 2026-07-15 | [#95](https://github.com/jkoogit/jkadh/issues/95) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리` 내부 실행 계획에 `merge_pr_to_dev`를 명시하고 승인 차단 시 자동 `--no-merge` 축소 금지 기준 추가 |
 
 [목차로 이동](#목차)

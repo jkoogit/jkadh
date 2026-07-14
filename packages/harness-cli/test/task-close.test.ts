@@ -96,7 +96,8 @@ test("task close report is ready when closure evidence is present and no work re
 
   assert.equal(report.status, "ready");
   assert.equal(report.json.prReady, true);
-  assert.match(report.markdown, /PR readiness: ready for commit, push, PR creation, and PR merge/);
+  assert.match(report.markdown, /PR readiness: ready for commit, push, PR creation, and dev PR merge/);
+  assert.match(report.markdown, /execution plan: commit_changes -> push_branch -> create_pr -> dev -> merge_pr_to_dev -> dev/);
   assert.match(report.markdown, /change summary:/);
 });
 
@@ -192,7 +193,7 @@ test("task close execution runs commit push PR create and optional merge", () =>
     "commit_changes",
     "push_branch",
     "create_pr",
-    "merge_pr"
+    "merge_pr_to_dev"
   ]);
   assert.equal(calls[0], "git add -- packages/harness-cli/src/flows/task-close.ts");
   assert.match(calls.join("\n"), /git commit -m feat: add task close execution mode/);
@@ -200,6 +201,7 @@ test("task close execution runs commit push PR create and optional merge", () =>
   assert.match(calls.join("\n"), /gh pr create --base dev --head task_codex\/064-harness-cli-minimal/);
   assert.match(calls.join("\n"), /Related #64/);
   assert.match(calls.join("\n"), /gh pr merge --merge --delete-branch=false/);
+  assert.match(result.markdown, /merge_pr_to_dev: PR merged to dev/);
 });
 
 test("task close execution blocks non-compliant PR titles", () => {
@@ -256,4 +258,63 @@ test("task close execution updates existing PR before merge", () => {
   assert.match(calls.join("\n"), /gh pr edit --title \[064\]_\(001\)_Harness_task_close_execution_mode --body/);
   assert.match(calls.join("\n"), /gh pr ready/);
   assert.match(calls.join("\n"), /gh pr merge --merge --delete-branch=false/);
+});
+
+test("task close execution blocks merge gate without downgrading to no-merge", () => {
+  const calls: string[] = [];
+  const result = executeTaskClose({
+    completionSummary: "implemented task close report",
+    verificationResult: "npm test passed",
+    outOfScope: "promotion",
+    remainingWork: "none",
+    execution: {
+      enabled: true,
+      paths: ["packages/harness-cli/src/flows/task-close.ts"],
+      commitMessage: "feat: add task close execution mode",
+      prTitle: "[064]_(001)_Harness_task_close_execution_mode",
+      relatedIssueNumber: 64,
+      baseBranch: "dev",
+      mergePr: true
+    }
+  }, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "branch --show-current") {
+        return "task_codex/064-harness-cli-minimal";
+      }
+      if (command === "gh" && args[0] === "pr" && args[1] === "create") {
+        return "https://github.com/jkoogit/jkadh/pull/65";
+      }
+      return "";
+    }
+  }, (input) => {
+    if (input.requestedAction === "merge_pr_to_dev") {
+      return {
+        allowed: false,
+        reason: "approval required for merge_pr_to_dev",
+        nextState: "report_only",
+        tag: input.tag,
+        requestedAction: input.requestedAction
+      };
+    }
+    return {
+      allowed: true,
+      reason: "allowed",
+      nextState: "execute",
+      tag: input.tag,
+      requestedAction: input.requestedAction
+    };
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.steps.map((step) => step.action), [
+    "commit_changes",
+    "push_branch",
+    "create_pr",
+    "merge_pr_to_dev"
+  ]);
+  assert.equal(result.steps.at(-1)?.status, "blocked");
+  assert.match(result.markdown, /approval required for merge_pr_to_dev/);
+  assert.doesNotMatch(result.markdown, /--no-merge/);
+  assert.doesNotMatch(calls.join("\n"), /gh pr merge/);
 });
