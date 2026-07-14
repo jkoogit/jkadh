@@ -111,8 +111,17 @@ export function readMigrationFiles(migrationsDir: string): MigrationFile[] {
 
 async function ensureMigrationTable(client: DbClient): Promise<void> {
   await client.query(`
-    create schema if not exists harness_meta;
-    create table if not exists harness_meta.schema_migration (
+    do $$
+    begin
+      if exists (select 1 from information_schema.schemata where schema_name = 'harness_meta')
+        and not exists (select 1 from information_schema.schemata where schema_name = 'meta') then
+        alter schema harness_meta rename to meta;
+      end if;
+    end
+    $$;
+
+    create schema if not exists meta;
+    create table if not exists meta.schema_migration (
       version integer primary key,
       name text not null unique,
       checksum text not null,
@@ -124,7 +133,7 @@ async function ensureMigrationTable(client: DbClient): Promise<void> {
 async function readAppliedVersions(client: DbClient): Promise<Map<number, string>> {
   const result = await client.query<{ version: number; checksum: string }>(`
     select version, checksum
-    from harness_meta.schema_migration
+    from meta.schema_migration
     order by version
   `);
   return new Map(result.rows.map((row) => [row.version, row.checksum]));
@@ -135,7 +144,7 @@ async function applyMigration(client: DbClient, migration: MigrationFile): Promi
   try {
     await client.query(migration.sql);
     await client.query(
-      `insert into harness_meta.schema_migration (version, name, checksum)
+      `insert into meta.schema_migration (version, name, checksum)
        values ($1, $2, $3)`,
       [migration.version, migration.name, migration.checksum]
     );
