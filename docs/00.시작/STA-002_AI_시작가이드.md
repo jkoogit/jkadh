@@ -351,14 +351,20 @@ AI는 태그를 인식하면 다음 순서로 진행한다.
 | `#세션시작` | 원격 브랜치 일치 여부, 현재 브랜치, 작업트리, 최신 회고, 미해결 Backlog, 추천 다음 작업 |
 | `#태스크시작` | 관련 Issue, 작업 브랜치, 작업 범위, 제외 범위, 완료 조건, 검증 방법, 승인 상태, 현재 작업 단계, 구현 대기 여부, 다음 권장 태그 |
 | `#태스크정리` | 변경 요약, 검증 결과, 세션명 현행화 결과, PR 상태, 내부 실행 계획, `merge_pr_to_dev` 완료 여부, 미완료 시 보류 사유와 다음 조치, Issue 완료 조건 충족 여부, 후속 Backlog |
-| `#태스크승급` | 승급 대상 커밋, `stg` 검증 결과, `main` 반영 결과, `dev/stg/main` 일치 여부, Issue 미종료 상태 |
+| `#태스크승급` | 승급 대상 커밋, `stg` 검증 결과, `main` 반영 결과, `dev/stg/main` 일치 여부, Issue 미종료 상태, 다음 작업 리뷰, 추천 다음턴 프롬프트 |
 | `#태스크승급-확인` | `stg` 반영 결과, 기본 검증 결과, `main` 승급 전 확인 요청 |
 | `#태스크승급-검증` | `stg` 반영 결과, 검증 대기 항목, 실패 시 기록 위치 |
 | `#세션정리` | 세션명 현행화 블록, 회고 위치, 남은 Issue/PR/Backlog, 다음 세션 시작 프롬프트, 작업트리 상태 |
 
 `#태스크정리`와 `#태스크승급`은 Issue를 종료하지 않는다. `#태스크정리`는 종료 후보 판정까지만 수행하고, `#태스크승급`은 승급 후 Issue 상태를 확인해 보고만 한다. Issue 종료는 `#세션정리`에서 완료 조건, 후속 Backlog, 남은 범위, 관련 PR 반영 상태를 확인한 뒤 verified 후보에 한해 수행한다.
 
+`#태스크정리` 완료 보고는 다음 권장 명령을 `#태스크승급`으로 제한한다. 다음 업무 후보 리뷰와 붙여넣기 가능한 다음턴 프롬프트 추천은 `#태스크승급` 완료 후 수행한다.
+
 `#태스크정리`의 사용자 문법은 그대로 유지한다. 내부 실행 계획은 `commit_changes`, `push_branch`, `create_pr`, `merge_pr_to_dev`를 명시해 보고하고, `merge_pr_to_dev` 단계가 승인 또는 권한 게이트에 막히면 보류로 보고한다. 사용자가 명시하지 않은 상태에서 자동으로 `--no-merge`로 축소해 PR 생성까지만 완료 처리하지 않는다.
+
+단독 `#태스크정리`는 `PR 생성과 dev merge 포함으로 진행`과 동등한 승인 주문으로 정규화한다. 실행 전 정규 주문서에는 `task_close_execute`, `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev`, `shared branch write: dev`, `approval justification`을 포함한다. 외부 승인 요청이 필요한 실행 환경에서는 이 정규 주문서의 승인 문구를 사용한다.
+
+외부 승인 레이어가 단독 `#태스크정리`의 `merge_pr_to_dev`를 차단하면 자동 축소하지 않고 `Merge Retry Order`를 출력한다. 사용자는 출력된 `#태스크정리.PR머지` 주문서를 그대로 붙여넣어 명시 merge 승인으로 이어갈 수 있다. 처음부터 피드백을 생략하려면 `#태스크정리.PR머지`를 사용한다.
 
 ## 16. 보정 보고 기준
 
@@ -412,3 +418,6 @@ AI는 태그를 인식하면 다음 순서로 진행한다.
 | 2026-07-12 | [#58](https://github.com/jkoogit/jkadh/issues/58) | Codex | GPT-5 | CTO | jk / Codex | Revise | 방향 합의 표현의 상태 변경 과해석 금지와 Issue 종료 세션정리 전용 기준 반영 |
 | 2026-07-13 | [#76](https://github.com/jkoogit/jkadh/issues/76) | Codex | GPT-5 | CTO | jk / Codex | Revise | HCP 태그로 시작하지 않는 자연어 요청은 실행모드가 아니라 확인모드로 처리하는 기준 추가 |
 | 2026-07-15 | [#95](https://github.com/jkoogit/jkadh/issues/95) | Codex | GPT-5 | CTO | jk / Codex | Revise | `#태스크정리` 내부 실행 계획과 `merge_pr_to_dev` 승인 차단 시 자동 축소 금지 기준 추가 |
+| 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Revise | 단독 `#태스크정리`의 PR 생성과 dev merge 포함 승인 등가성 및 실행 전 정규 주문서 기준 추가 |
+| 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Revise | `#태스크정리.PR머지` 호환성 suffix와 merge 차단 재승인 피드백 기준 추가 |
+| 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크정리는 승급 권장, 태스크승급은 다음 작업 리뷰와 다음턴 프롬프트 추천을 담당하도록 기준 추가 |

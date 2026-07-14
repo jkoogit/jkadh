@@ -315,6 +315,10 @@ test("task close execution blocks merge gate without downgrading to no-merge", (
   ]);
   assert.equal(result.steps.at(-1)?.status, "blocked");
   assert.match(result.markdown, /approval required for merge_pr_to_dev/);
+  assert.match(result.markdown, /## Merge Retry Order/);
+  assert.match(result.markdown, /#태스크정리\.PR머지/);
+  assert.match(result.markdown, /대상: PR #65/);
+  assert.match(result.markdown, /base: dev/);
   assert.doesNotMatch(result.markdown, /--no-merge/);
   assert.doesNotMatch(calls.join("\n"), /gh pr merge/);
 });

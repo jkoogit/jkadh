@@ -529,6 +529,7 @@ function buildDefaultPrBody(execution: TaskCloseExecutionOptions): string {
 }
 
 function buildExecutionResult(status: TaskCloseExecutionResult["status"], steps: TaskCloseExecutionResult["steps"]): TaskCloseExecutionResult {
+  const retryOrder = buildMergeRetryOrder(status, steps);
   const markdown = [
     "# Harness CLI task close execution",
     "",
@@ -536,7 +537,8 @@ function buildExecutionResult(status: TaskCloseExecutionResult["status"], steps:
     "",
     "## Steps",
     "",
-    ...(steps.length === 0 ? ["- [skipped] execution: not requested"] : steps.map((step) => `- [${step.status}] ${step.action}: ${step.detail}`))
+    ...(steps.length === 0 ? ["- [skipped] execution: not requested"] : steps.map((step) => `- [${step.status}] ${step.action}: ${step.detail}`)),
+    ...(retryOrder ? ["", "## Merge Retry Order", "", retryOrder] : [])
   ].join("\n");
 
   return {
@@ -544,4 +546,24 @@ function buildExecutionResult(status: TaskCloseExecutionResult["status"], steps:
     markdown: `${markdown}\n`,
     steps
   };
+}
+
+function buildMergeRetryOrder(status: TaskCloseExecutionResult["status"], steps: TaskCloseExecutionResult["steps"]): string | undefined {
+  const blockedMerge = status === "blocked"
+    && steps.some((step) => step.action === "merge_pr_to_dev" && step.status === "blocked");
+  if (!blockedMerge) {
+    return undefined;
+  }
+
+  const prNumber = steps
+    .map((step) => step.detail.match(/\/pull\/(\d+)/)?.[1] ?? step.detail.match(/PR #(\d+)/i)?.[1])
+    .find(Boolean);
+  return [
+    "```text",
+    "#태스크정리.PR머지",
+    ...(prNumber ? [`대상: PR #${prNumber}`] : []),
+    "base: dev",
+    "사유: 단독 #태스크정리의 dev merge 승인이 외부 승인 레이어에서 차단됨",
+    "```"
+  ].join("\n");
 }
