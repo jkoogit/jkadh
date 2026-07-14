@@ -61,7 +61,7 @@ async function readMigrationVersion(client: Awaited<ReturnType<typeof createDbCl
   try {
     const result = await client.query<{ migration_version: string | null }>(`
       select max(version)::text as migration_version
-      from harness_meta.schema_migration
+      from meta.schema_migration
     `);
     return result.rows[0]?.migration_version ?? null;
   } catch {

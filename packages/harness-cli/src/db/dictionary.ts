@@ -26,9 +26,9 @@ export async function runDictionaryList(repoRoot: string): Promise<{ status: "li
       select d.domain_key, t.term_key,
         max(l.label) filter (where l.language_code = 'ko') as ko_label,
         max(l.label) filter (where l.language_code = 'en') as en_label
-      from dictionary.term t
-      join dictionary.domain d on d.domain_id = t.domain_id
-      left join dictionary.term_label l on l.term_id = t.term_id
+      from dict.term t
+      join dict.domain d on d.domain_id = t.domain_id
+      left join dict.term_label l on l.term_id = t.term_id
       group by d.domain_key, t.term_key
       order by d.domain_key, t.term_key
     `);

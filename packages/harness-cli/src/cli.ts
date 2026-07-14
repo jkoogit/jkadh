@@ -11,6 +11,8 @@ import { readInternalGitStatus } from "./git/git-status.ts";
 import { readGitHubOpenStatus } from "./github/github-status.ts";
 import { runDbCheck } from "./db/db-check.ts";
 import { runDbMigrate } from "./db/db-migrate.ts";
+import { runDbBaseline } from "./db/db-baseline.ts";
+import { runDbValidate } from "./db/db-validate.ts";
 import { runDictionaryList } from "./db/dictionary.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "./flows/session-close.ts";
@@ -69,6 +71,9 @@ function printUsage(): void {
   jkadh hcp archived cleanup [--older-than-days 90 --keep 20 --dry-run]
   jkadh db check
   jkadh db migrate [--dry-run|--execute]
+  jkadh db init [--dry-run|--execute]
+  jkadh db reset [--dry-run|--execute]
+  jkadh db validate
   jkadh dictionary list
   jkadh report create
 `);
@@ -314,6 +319,29 @@ async function run(argv: string[]): Promise<number> {
       return result.status === "blocked" ? 2 : 0;
     } catch (error) {
       console.log(buildDbErrorMarkdown("Harness CLI db migrate", error));
+      return 2;
+    }
+  }
+
+  if (scope === "db" && (command === "init" || command === "reset")) {
+    try {
+      const options = parseDbBaselineArgs(command, argv.slice(2));
+      const result = await runDbBaseline(process.cwd(), options);
+      console.log(result.markdown);
+      return result.status === "blocked" ? 2 : 0;
+    } catch (error) {
+      console.log(buildDbErrorMarkdown(`Harness CLI db ${command}`, error));
+      return 2;
+    }
+  }
+
+  if (scope === "db" && command === "validate") {
+    try {
+      const result = await runDbValidate(process.cwd());
+      console.log(result.markdown);
+      return result.status === "valid" ? 0 : 2;
+    } catch (error) {
+      console.log(buildDbErrorMarkdown("Harness CLI db validate", error));
       return 2;
     }
   }
@@ -743,6 +771,13 @@ function requiredOption(options: Record<string, string>, key: string): string {
 
 function parseDbMigrateArgs(args: string[]): { execute?: boolean } {
   return {
+    execute: args.includes("--execute")
+  };
+}
+
+function parseDbBaselineArgs(mode: "init" | "reset", args: string[]): { mode: "init" | "reset"; execute?: boolean } {
+  return {
+    mode,
     execute: args.includes("--execute")
   };
 }
