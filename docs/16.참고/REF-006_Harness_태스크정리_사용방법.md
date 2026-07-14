@@ -4,7 +4,7 @@
 
 2026-07-13 현재 채팅 태그 `#태스크정리`의 기본 동작은 실행모드다. 보고만 필요하면 `#태스크정리.보고`를 사용한다.
 
-실행모드는 태스크 변경사항을 commit/push하고 PR을 `dev` 대상으로 생성/갱신한 뒤 merge한다. 내부 실행 계획은 `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev` 순서로 표시한다. `stg`, `main` 반영은 `#태스크승급`에서 처리하며, Issue 종료는 `#세션정리`에서만 처리한다.
+실행모드는 태스크 변경사항을 commit/push하고 PR을 `dev` 대상으로 생성/갱신한 뒤 merge한다. 내부 실행 계획은 `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev` 순서로 표시한다. 단독 `#태스크정리` 입력은 `PR 생성과 dev merge 포함으로 진행`과 동등한 승인 주문으로 정규화한다. `stg`, `main` 반영은 `#태스크승급`에서 처리하며, Issue 종료는 `#세션정리`에서만 처리한다.
 
 | 항목 | 값 |
 |---|---|
@@ -59,6 +59,10 @@
 ```
 
 기본 `#태스크정리`는 실행 의도로 해석한다. 단독으로 입력하면 Harness는 현재 Git 변경 요약을 확인하고, 누락된 정리 항목을 채울 수 있는 주문서 초안을 출력한다. 실행 없이 보고만 필요하면 `.보고` suffix를 사용한다.
+
+단독 `#태스크정리`가 실행 가능한 조건을 갖춘 경우 Harness는 실행 전에 정규 주문서를 출력한다. 이 주문서에는 `task_close_execute`, `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev`, `shared branch write: dev`, `approval justification`이 포함된다.
+
+외부 승인 레이어가 단독 `#태스크정리`의 `dev` merge를 차단하면 Harness는 자동으로 `--no-merge`로 축소하지 않고 붙여넣기 가능한 재승인 주문서를 출력한다. 피드백을 생략하고 처음부터 명시 merge 승인으로 진행하려면 `#태스크정리.PR머지`를 사용한다.
 
 ```text
 #태스크정리.보고
@@ -115,6 +119,8 @@
 | PR 준비 여부 | 필수 항목이 있고 남은작업이 없으면 커밋, push, PR 생성, `dev` PR 머지 준비 완료 |
 | 실행 계획 | `commit_changes`, `push_branch`, `create_pr`, `merge_pr_to_dev` 순서 표시 |
 | 쓰기 작업 | `commit_changes`, `push_branch`, `create_pr`, `merge_pr_to_dev` 대상 표시 |
+| 승인 등가성 | 단독 `#태스크정리`를 `PR 생성과 dev merge 포함 승인`으로 정규화 |
+| 호환성 suffix | `#태스크정리.PR머지`를 `dev` merge 명시 승인으로 해석 |
 
 ## 7. Harness가 하지 않는 일
 
@@ -207,6 +213,17 @@ PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나
 
 `merge_pr_to_dev` 단계에서 승인, 권한, 리뷰, 충돌 같은 게이트가 막히면 실행 결과는 `blocked`로 남긴다. 이 경우 Harness는 사용자에게 묻지 않고 자동으로 `--no-merge` 처리하거나 PR 생성까지만 완료한 것으로 축소 보고하지 않는다.
 
+외부 승인 레이어가 별도로 존재하는 실행 환경에서는 Harness가 출력한 `approval justification`을 승인 요청 문구에 사용한다. 기본 문구는 `사용자의 #태스크정리 표준 의미는 commit, push, PR 생성, dev merge를 포함하므로 merge_pr_to_dev까지 실행한다.`이다.
+
+차단 피드백은 다음 형식이다.
+
+```text
+#태스크정리.PR머지
+대상: PR #NN
+base: dev
+사유: 단독 #태스크정리의 dev merge 승인이 외부 승인 레이어에서 차단됨
+```
+
 ## 10. 결과 해석 기준
 
 대표 출력 항목의 의미는 다음과 같다.
@@ -221,6 +238,8 @@ PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나
 | `remaining work` | 남은 작업이다. |
 | `PR readiness` | 커밋, push, PR 생성, `dev` PR 머지 준비가 되었는지 여부다. |
 | `execution plan` | 실행 시 수행할 내부 단계다. 기본값은 `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev`다. |
+| `approval justification` | 단독 `#태스크정리`가 `dev` 머지까지 포함한다는 실행 전 승인 문구다. |
+| `Merge Retry Order` | `merge_pr_to_dev` 차단 시 사용자가 그대로 붙여넣을 수 있는 재승인 주문서다. |
 | `task close execution` | `--execute` 실행 결과다. |
 | `Suggested Order` | 빈 입력이나 일부 누락 입력을 기준으로 Harness가 제안하는 정리 주문서 초안이다. |
 
@@ -230,10 +249,12 @@ PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나
 
 | 상황 | 다음 처리 |
 |---|---|
-| `ready`이고 남은 작업이 없음 | 커밋, push, PR 생성/`dev` 머지 진행 후 `#태스크승급` |
+| `ready`이고 남은 작업이 없음 | 커밋, push, PR 생성/`dev` 머지 진행 후 다음 권장 명령으로 `#태스크승급`을 제안 |
 | `blocked`이고 주문서 초안이 적절함 | 초안에 동의한다고 답하고 진행 |
 | `blocked`이고 누락 항목이 있음 | 누락 항목을 채우거나 주문서 초안을 수정해 다시 `#태스크정리` |
 | 남은 작업이 있음 | 구현을 계속 진행 |
+
+다음 업무 후보 리뷰와 다음턴 프롬프트 추천은 `#태스크승급` 완료 후 수행한다. `#태스크정리` 단계에서는 아직 `main` 반영 전이므로 다음 태스크를 확정하지 않는다.
 
 ## 작업 이력
 
@@ -244,5 +265,8 @@ PR 제목이 `[이슈번호]_(이슈내PR번호)_<PR명>` 형식이 아니거나
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리` 실행모드 옵션과 안전한 path 기반 staging 기준 추가 |
 | 2026-07-13 | [#73](https://github.com/jkoogit/jkadh/issues/73) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리` 실행모드의 PR 제목 명명규칙과 `Related #이슈번호` 연결 조건 보강 |
 | 2026-07-15 | [#95](https://github.com/jkoogit/jkadh/issues/95) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리` 내부 실행 계획에 `merge_pr_to_dev`를 명시하고 승인 차단 시 자동 `--no-merge` 축소 금지 기준 추가 |
+| 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | 단독 `#태스크정리`를 PR 생성과 dev merge 포함 승인 주문으로 정규화하고 실행 전 승인 문구 기준 추가 |
+| 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리.PR머지` 호환성 suffix와 merge 차단 재승인 피드백 기준 추가 |
+| 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | 태스크정리 완료 후에는 승급 권장까지만 제안하고 다음 업무 리뷰는 태스크승급 완료 후 수행하는 기준 추가 |
 
 [목차로 이동](#목차)

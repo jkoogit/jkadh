@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseHarnessTag, parseHarnessTagCommand } from "../src/tags/tag-adapter.ts";
+import {
+  buildHarnessTagExecutionOrder,
+  formatHarnessTagExecutionOrder,
+  parseHarnessTag,
+  parseHarnessTagCommand
+} from "../src/tags/tag-adapter.ts";
 
 test("tag adapter maps Korean session and task tags to flow ids", () => {
   assert.equal(parseHarnessTag("#세션시작"), "session_start");
@@ -20,6 +25,57 @@ test("tag adapter marks default tags as execute mode", () => {
     tag: "task_close",
     mode: "execute"
   });
+});
+
+test("tag adapter expands standalone task close into dev merge approval order", () => {
+  const parsed = parseHarnessTagCommand("#태스크정리");
+  assert.ok(parsed);
+
+  const order = buildHarnessTagExecutionOrder(parsed);
+
+  assert.equal(order.intent, "task_close_execute");
+  assert.deepEqual(order.steps, ["commit_changes", "push_branch", "create_pr", "merge_pr_to_dev"]);
+  assert.equal(order.sharedBranchWrite, "dev");
+  assert.match(order.approvalEquivalence ?? "", /PR 생성과 dev merge 포함 승인/);
+  assert.match(order.approvalJustification ?? "", /dev merge를 포함/);
+});
+
+test("tag adapter formats task close approval order before execution", () => {
+  const parsed = parseHarnessTagCommand("#태스크정리");
+  assert.ok(parsed);
+
+  const markdown = formatHarnessTagExecutionOrder(buildHarnessTagExecutionOrder(parsed));
+
+  assert.match(markdown, /# HCP normalized execution order/);
+  assert.match(markdown, /steps: commit_changes -> push_branch -> create_pr -> merge_pr_to_dev/);
+  assert.match(markdown, /shared branch write: dev/);
+  assert.match(markdown, /approval justification: .*dev merge/);
+});
+
+test("tag adapter treats task close PR merge suffix as explicit merge approval", () => {
+  const parsed = parseHarnessTagCommand("#태스크정리.PR머지");
+  assert.deepEqual(parsed, {
+    tag: "task_close",
+    mode: "merge"
+  });
+
+  const order = buildHarnessTagExecutionOrder(parsed);
+
+  assert.equal(order.intent, "task_close_execute");
+  assert.deepEqual(order.steps, ["commit_changes", "push_branch", "create_pr", "merge_pr_to_dev"]);
+  assert.match(order.approvalEquivalence ?? "", /명시 승인/);
+  assert.match(order.approvalJustification ?? "", /#태스크정리\.PR머지로 dev merge를 명시 승인/);
+});
+
+test("tag adapter formats explicit PR merge approval order", () => {
+  const parsed = parseHarnessTagCommand("#태스크정리.PR머지");
+  assert.ok(parsed);
+
+  const markdown = formatHarnessTagExecutionOrder(buildHarnessTagExecutionOrder(parsed));
+
+  assert.match(markdown, /mode: merge/);
+  assert.match(markdown, /shared branch write: dev/);
+  assert.match(markdown, /approval justification: .*명시 승인/);
 });
 
 test("tag adapter marks dot report suffix as report mode", () => {

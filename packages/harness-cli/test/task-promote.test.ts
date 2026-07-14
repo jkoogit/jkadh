@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs } from "../src/flows/task-promote.ts";
+import { buildTaskPromoteNextWorkReview, buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs } from "../src/flows/task-promote.ts";
 
 test("task promote arg parser accepts target commit branches and execution flag", () => {
   const input = parseTaskPromoteArgs([
@@ -106,4 +106,21 @@ test("task promote execution pushes target commit to target branches", () => {
     "git push origin abc123:refs/heads/stg",
     "git push origin abc123:refs/heads/main"
   ]);
+  assert.match(result.markdown, /## Next Work Review/);
+  assert.match(result.markdown, /recommended next prompt/);
+  assert.match(result.markdown, /#태스크시작\{/);
+});
+
+test("task promote next work review can include current issue and counts", () => {
+  const markdown = buildTaskPromoteNextWorkReview({
+    issueNumber: 97,
+    openPullRequestCount: 0,
+    unfinishedTaskCount: 0,
+    nextPrompt: "#세션정리"
+  });
+
+  assert.match(markdown, /current issue: #97/);
+  assert.match(markdown, /open PRs: 0/);
+  assert.match(markdown, /unfinished HCP tasks: 0/);
+  assert.match(markdown, /#세션정리/);
 });

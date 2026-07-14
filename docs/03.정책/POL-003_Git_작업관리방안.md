@@ -227,6 +227,10 @@ PR은 검토 가능한 상태가 되면 Ready 상태로 전환한다.
 
 `#태스크정리` 결과는 `완료` 또는 `보류`로 보고한다. `완료`는 검증 결과가 있고, 세션명 현행화 결과가 보고되었고, PR 생성 또는 현행화가 끝났으며 `merge_pr_to_dev`까지 완료했거나 머지가 불필요한 사유를 명시한 상태다. `보류`는 PR은 생성 또는 현행화했지만 세션명 현행화, Ready 전환, 리뷰, 검증, 충돌, 권한, 승인 같은 게이트 때문에 `merge_pr_to_dev`를 진행하지 못한 상태다. 보류로 보고할 때는 남은 게이트와 다음 필요 조치를 함께 남긴다. 승인 게이트가 막힌 경우에는 사용자가 명시하지 않은 `--no-merge` 처리로 자동 축소하지 않는다.
 
+단독 `#태스크정리` 입력은 `PR 생성과 dev merge 포함으로 진행`과 동등한 승인 주문으로 본다. 실행 전 정규 주문서는 `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev`와 `shared branch write: dev`를 포함해야 하며, 외부 승인 요청 문구에는 `dev merge` 포함 사실을 명시한다.
+
+외부 승인 레이어가 단독 `#태스크정리`의 `merge_pr_to_dev`를 차단하면 `#태스크정리.PR머지` 재승인 주문서를 출력한다. `#태스크정리.PR머지`는 호환성 suffix이며 `dev` merge 명시 승인으로 해석한다. 이런 대응은 태그별 예외가 아니라 영향받은 기능 중심의 환경대응 이력으로 관리한다.
+
 공식 문서 작업이 포함된 경우 `#태스크정리` 전에 탈고 작업을 수행한다. 탈고는 새 내용을 더 추가하기 위한 단계가 아니라, 이미 반영한 문서가 읽기 쉽고 다른 문서와 충돌하지 않는지 확인하는 품질 게이트다.
 
 문서 탈고에서는 다음 항목을 확인한다.
@@ -427,3 +431,5 @@ Git 상태 변경 게이트를 확인하기 전에 [STA-002 AI 시작가이드](
 | 2026-07-10 | [#52](https://github.com/jkoogit/jkadh/issues/52) | Codex | GPT-5 | CTO | jk / Codex | Revise | Git 상태 변경 전 STA-002 요청 해석 게이트를 먼저 적용하는 기준 추가 |
 | 2026-07-10 | [#56](https://github.com/jkoogit/jkadh/issues/56) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크정리 결과 보고에 세션명 현행화 결과를 필수 조건으로 추가 |
 | 2026-07-12 | [#58](https://github.com/jkoogit/jkadh/issues/58) | Codex | GPT-5 | CTO | jk / Codex | Revise | Issue 제목 우선 보정과 Issue 종료 세션정리 전용 기준 반영 |
+| 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Revise | 단독 `#태스크정리`의 PR 생성과 dev merge 포함 승인 등가성 기준 추가 |
+| 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Revise | `#태스크정리.PR머지` 호환성 suffix와 영향받은 기능 중심 환경대응 이력 기준 추가 |

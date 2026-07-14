@@ -42,7 +42,7 @@ import {
   updateHcpTask,
   updateHcpTaskTitle
 } from "./state/session-state.ts";
-import { parseHarnessTagCommand } from "./tags/tag-adapter.ts";
+import { buildHarnessTagExecutionOrder, formatHarnessTagExecutionOrder, parseHarnessTagCommand } from "./tags/tag-adapter.ts";
 
 const requiredEnvNames = [
   "GITHUB_TOKEN",
@@ -299,6 +299,7 @@ async function run(argv: string[]): Promise<number> {
       console.error(`Unsupported Harness tag: ${command}`);
       return 1;
     }
+    console.log(formatHarnessTagExecutionOrder(buildHarnessTagExecutionOrder(parsed)));
     return run(tagCommandArgs(parsed.tag, parsed.mode, inlineTagArgs(command, argv.slice(2))));
   }
 
@@ -800,7 +801,7 @@ function buildDbErrorMarkdown(title: string, error: unknown): string {
   return report.markdown;
 }
 
-export function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report", args: string[]): string[] {
+export function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report" | "merge", args: string[]): string[] {
   if (tag === "session_start") {
     const normalizedArgs = expandBlockOption(normalizeSessionNumberTagArgs(args), parseSessionStartBlockArgs);
     return mode === "execute" ? ["session", "start", ...normalizedArgs] : ["session", "start", "--no-state", ...normalizedArgs];
@@ -809,7 +810,7 @@ export function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report", args
     return mode === "execute" ? ["task", "start", "--execute", ...args] : ["task", "start", ...args];
   }
   if (tag === "task_close") {
-    return mode === "execute" ? ["task", "close", "--execute", ...args] : ["task", "close", ...args];
+    return mode === "execute" || mode === "merge" ? ["task", "close", "--execute", ...args] : ["task", "close", ...args];
   }
   if (tag === "task_promote") {
     return mode === "execute" ? ["task", "promote", "--execute", ...args] : ["task", "promote", ...args];
