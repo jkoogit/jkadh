@@ -36,9 +36,9 @@ const flows: Record<HarnessTag, LifecycleFlow> = {
   task_close: {
     tag: "task_close",
     command: "task close",
-    responsibility: "Check completion evidence, then prepare task-level commit, push, PR creation, and PR merge.",
+    responsibility: "Check completion evidence, then prepare task-level commit, push, PR creation, and dev PR merge.",
     checks: ["diff summary", "verification result", "completion criteria", "remaining work", "PR readiness"],
-    writeActions: ["commit_changes", "push_branch", "create_pr", "merge_pr"]
+    writeActions: ["commit_changes", "push_branch", "create_pr", "merge_pr_to_dev"]
   },
   task_promote: {
     tag: "task_promote",

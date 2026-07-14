@@ -44,12 +44,14 @@ export interface TaskCloseReport {
   blockedActions: string[];
 }
 
-const blockedActions = ["commit_changes", "push_branch", "create_pr", "merge_pr"];
-const executionActions: HarnessAction[] = ["commit_changes", "push_branch", "create_pr", "merge_pr"];
+const blockedActions = ["commit_changes", "push_branch", "create_pr", "merge_pr_to_dev"];
+const executionActions: HarnessAction[] = ["commit_changes", "push_branch", "create_pr", "merge_pr_to_dev"];
 
 export interface CommandRunner {
   run(command: string, args: string[], cwd: string): string;
 }
+
+export type GateChecker = typeof checkGate;
 
 export interface TaskCloseExecutionResult {
   status: "executed" | "blocked" | "skipped";
@@ -217,7 +219,12 @@ export function buildTaskCloseReport(input: TaskCloseInput): TaskCloseReport {
       {
         name: "PR readiness",
         status: prReady ? "pass" : "blocked",
-        detail: prReady ? "ready for commit, push, PR creation, and PR merge" : "requires completion evidence and no remaining work"
+        detail: prReady ? "ready for commit, push, PR creation, and dev PR merge" : "requires completion evidence and no remaining work"
+      },
+      {
+        name: "execution plan",
+        status: prReady ? "pass" : "blocked",
+        detail: buildExecutionPlanDetail(input.execution)
       },
       {
         name: "write actions",
@@ -252,7 +259,12 @@ export function readTaskCloseGitSummary(cwd: string): TaskCloseGitSummary {
   };
 }
 
-export function executeTaskClose(input: TaskCloseInput, cwd: string, runner: CommandRunner = defaultCommandRunner): TaskCloseExecutionResult {
+export function executeTaskClose(
+  input: TaskCloseInput,
+  cwd: string,
+  runner: CommandRunner = defaultCommandRunner,
+  gateChecker: GateChecker = checkGate
+): TaskCloseExecutionResult {
   if (!input.execution?.enabled) {
     return buildExecutionResult("skipped", []);
   }
@@ -277,12 +289,12 @@ export function executeTaskClose(input: TaskCloseInput, cwd: string, runner: Com
 
   const steps: TaskCloseExecutionResult["steps"] = [];
   for (const action of executionActions) {
-    if (action === "merge_pr" && !input.execution.mergePr) {
-      steps.push({ action, status: "skipped", detail: "merge disabled by --no-merge" });
+    if (action === "merge_pr_to_dev" && !input.execution.mergePr) {
+      steps.push({ action, status: "skipped", detail: "dev merge disabled by explicit --no-merge" });
       continue;
     }
 
-    const gate = checkGate({
+    const gate = gateChecker({
       mode: "task-close-execute",
       tag: "task_close",
       requestedAction: action
@@ -368,6 +380,19 @@ function summarizeGitStatus(gitSummary: TaskCloseGitSummary): string {
   return `${status}; ${stat}`;
 }
 
+function buildExecutionPlanDetail(execution?: TaskCloseExecutionOptions): string {
+  const baseBranch = execution?.baseBranch ?? "dev";
+  const mergeStep = execution?.mergePr === false
+    ? "merge_pr_to_dev explicitly disabled by --no-merge"
+    : `merge_pr_to_dev -> ${baseBranch}`;
+  return [
+    "commit_changes",
+    "push_branch",
+    `create_pr -> ${baseBranch}`,
+    mergeStep
+  ].join(" -> ");
+}
+
 function runGit(cwd: string, args: string[]): string {
   return execFileSync("git", args, {
     cwd,
@@ -435,10 +460,10 @@ function runExecutionStep(
     return { action, status: "executed", detail: prUrl || "PR created" };
   }
 
-  if (action === "merge_pr") {
+  if (action === "merge_pr_to_dev") {
     markPrReady(cwd, runner);
     runner.run("gh", ["pr", "merge", "--merge", "--delete-branch=false"], cwd);
-    return { action, status: "executed", detail: "PR merged" };
+    return { action, status: "executed", detail: `PR merged to ${execution.baseBranch}` };
   }
 
   return { action, status: "skipped", detail: "unsupported action" };
