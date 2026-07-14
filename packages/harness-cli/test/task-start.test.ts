@@ -68,6 +68,8 @@ test("task start report is ready when all required inputs are present", () => {
   assert.equal(report.json.recommendedBranchName, "task_codex/064-harness-cli-task-start");
   assert.match(report.markdown, /task identifier: issue #64/);
   assert.match(report.markdown, /start readiness: ready/);
+  assert.match(report.markdown, /작업 단계: 준비단계/);
+  assert.match(report.markdown, /현재 작업현황: 구현 미시작/);
 });
 
 test("task start report is blocked when required inputs are missing", () => {
@@ -183,6 +185,8 @@ test("task start execution creates and checks out requested branch", () => {
   assert.deepEqual(result.steps.map((step) => step.action), ["create_issue", "create_branch"]);
   assert.equal(result.steps[0].status, "skipped");
   assert.equal(calls[0], "git switch -c task_codex/064-harness-task-start-execute origin/main");
+  assert.match(result.markdown, /단계: 준비단계 완료/);
+  assert.match(result.markdown, /구현상태: 구현 대기/);
 });
 
 test("task start execution uses recommended branch when branch is omitted", () => {

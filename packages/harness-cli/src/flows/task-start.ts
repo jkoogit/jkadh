@@ -196,6 +196,20 @@ export function buildTaskStartReport(input: TaskStartInput): TaskStartReport {
         detail: status === "ready" ? "ready" : `suggested order generated; missing: ${missing.join("; ")}`
       },
       {
+        name: "작업 단계",
+        status: status === "ready" ? "pass" : "blocked",
+        detail: status === "ready"
+          ? "준비단계: 작업 경계 확정, 실행 시 Issue/브랜치/HCP 태스크 준비 후 구현 대기"
+          : "준비단계: 필수 입력 보강 필요"
+      },
+      {
+        name: "현재 작업현황",
+        status: "info",
+        detail: status === "ready"
+          ? "구현 미시작: 다음 단계는 구현 처리이며, 커밋/PR/승급은 #태스크정리/#태스크승급에서만 수행"
+          : "구현 대기 전: 주문서 보강 필요"
+      },
+      {
         name: "recommended branch",
         status: recommendedBranchName ? "info" : "blocked",
         detail: recommendedBranchName ?? "requires issue and scope"
@@ -461,10 +475,18 @@ function parseIssueNumber(value: string): number | undefined {
 }
 
 function buildExecutionResult(status: TaskStartExecutionResult["status"], steps: TaskStartExecutionResult["steps"]): TaskStartExecutionResult {
+  const phase = taskStartPhase(status, steps);
   const markdown = [
     "# Harness CLI task start execution",
     "",
     `status: ${status}`,
+    "",
+    "## 작업 현황",
+    "",
+    `- 단계: ${phase.stage}`,
+    `- 실행내용: ${phase.detail}`,
+    `- 구현상태: ${phase.implementation}`,
+    `- 다음 단계: ${phase.nextAction}`,
     "",
     "## Steps",
     "",
@@ -475,5 +497,39 @@ function buildExecutionResult(status: TaskStartExecutionResult["status"], steps:
     status,
     markdown: `${markdown}\n`,
     steps
+  };
+}
+
+function taskStartPhase(status: TaskStartExecutionResult["status"], steps: TaskStartExecutionResult["steps"]): {
+  stage: string;
+  detail: string;
+  implementation: string;
+  nextAction: string;
+} {
+  if (status === "executed") {
+    const issueStep = steps.find((step) => step.action === "create_issue");
+    const branchStep = steps.find((step) => step.action === "create_branch");
+    const issueDetail = issueStep?.status === "skipped" ? "기존 Issue 사용" : issueStep?.status === "executed" ? "Issue 생성 완료" : "Issue 처리 없음";
+    const branchDetail = branchStep?.status === "executed" ? "브랜치 생성 완료" : "브랜치 생성 미완료";
+    return {
+      stage: "준비단계 완료",
+      detail: `${issueDetail}, ${branchDetail}, HCP 태스크 등록은 CLI 상태 등록 단계에서 확인`,
+      implementation: "구현 대기",
+      nextAction: "#태스크처리 후보 또는 명시 구현 지시 후 #태스크정리"
+    };
+  }
+  if (status === "blocked") {
+    return {
+      stage: "준비단계 차단",
+      detail: "Issue/브랜치/HCP 태스크 준비 미완료",
+      implementation: "구현 불가",
+      nextAction: "누락 항목 보강 후 #태스크시작 재실행"
+    };
+  }
+  return {
+    stage: "보고단계",
+    detail: "상태 변경 없음",
+    implementation: "구현 미시작",
+    nextAction: "준비 조건 확인 후 #태스크시작 실행"
   };
 }
