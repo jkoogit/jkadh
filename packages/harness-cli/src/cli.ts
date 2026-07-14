@@ -191,7 +191,10 @@ async function run(argv: string[]): Promise<number> {
             issueNumber: input.issueNumber ?? parseIssueNumberFromText(execution.markdown),
             branchName: parseBranchNameFromText(execution.markdown)
           });
-          console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), `registered task: ${task.taskId}`));
+          console.log(buildHcpStateMarkdown(
+            buildHcpStateSummary(process.cwd(), input.sessionId),
+            `작업 단계: 준비단계 완료; 구현상태: 구현 대기; registered task: ${task.taskId}`
+          ));
         } catch (error) {
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), error instanceof Error ? error.message : "HCP task state registration failed"));
           return 2;
