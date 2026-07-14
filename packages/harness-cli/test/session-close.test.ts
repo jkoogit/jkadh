@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "../src/flows/session-close.ts";
-import { addHcpTask, createHcpSession, updateHcpTask } from "../src/state/session-state.ts";
+import { addHcpTask, createHcpSession, transitionHcpSessionStatus, updateHcpTask } from "../src/state/session-state.ts";
 
 test("session close arg parser accepts closure fields and verified issues", () => {
   const input = parseSessionCloseArgs([
@@ -96,6 +96,12 @@ test("session close report is ready with required closure evidence", () => {
   assert.match(report.markdown, /session number: #010/);
   assert.match(report.markdown, /issue close readiness: #64/);
   assert.match(report.markdown, /retrospective artifact: docs\/12\..*RET-009_2026-07-13_HCP_/);
+  assert.match(report.markdown, /## Next Session Handoff/);
+  assert.match(report.markdown, /next start: Next session starts from report suffix backlog/);
+  assert.match(report.markdown, /## Post-close Verification/);
+  assert.match(report.markdown, /retrospective artifact: docs\/12\..*RET-009_2026-07-13_HCP_/);
+  assert.match(report.markdown, /## Issue Management Comment/);
+  assert.match(report.markdown, /decision: close verified issue candidate/);
 });
 
 test("session close report leaves session number blank when absent", () => {
@@ -234,6 +240,31 @@ test("session close hcp state fills promoted tasks and verified session issue", 
   assert.deepEqual(input.completedTasks, [`${task.taskId} HCP state task`]);
   assert.deepEqual(input.verifiedIssueNumbers, [73]);
   assert.equal(report.status, "ready");
+});
+
+test("session close hcp state can refresh summary after session moves to closing", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-closing-"));
+  const session = createHcpSession(repo, {
+    agentId: "codex",
+    sessionNumber: "10",
+    sessionName: "010_Harness_HCP_state",
+    now: new Date("2026-07-13T01:00:00.000Z")
+  });
+  transitionHcpSessionStatus(repo, session.sessionId, "closing", new Date("2026-07-13T01:05:00.000Z"));
+
+  const input = enrichSessionCloseInputWithHcpState({
+    sessionId: session.sessionId,
+    completedTasks: ["task promote"],
+    issueUpdate: "Issue #73 updated",
+    remainingWork: "No open PR",
+    retrospective: "RET draft ready",
+    retrospectiveDocument: "docs/12.회고/RET-009_2026-07-13_HCP_세션정리_회고.md",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: []
+  }, repo);
+
+  assert.match(input.hcpRetrospectiveSummary ?? "", /Session status: closing/);
 });
 
 test("session close hcp state blocks unfinished active tasks", () => {
@@ -388,6 +419,55 @@ test("session close execution can PR merge and promote generated retrospective a
   assert.match(calls.join("\n"), /git push origin abc123:refs\/heads\/stg/);
   assert.match(calls.join("\n"), /git push origin abc123:refs\/heads\/main/);
   assert.equal(result.steps.at(-1)?.detail, "no verified issue close candidate");
+});
+
+test("session close execution ignores already merged session close PRs", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-merged-pr-"));
+  const calls: string[] = [];
+  const result = executeSessionClose({
+    completedTasks: ["task promote"],
+    sessionNumber: "010",
+    sessionName: "Harness HCP session close",
+    issueUpdate: "Issue #73 updated",
+    remainingWork: "No open PR",
+    retrospective: "RET draft ready",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [],
+    execution: {
+      enabled: true,
+      paths: [],
+      commitMessage: "docs: add session close retrospective",
+      prTitle: "[073]_(001)_HCP_세션정리_회고문서_누락방지_보강",
+      relatedIssueNumber: 73,
+      baseBranch: "dev",
+      mergePr: false,
+      promote: false,
+      targetBranches: ["stg", "main"]
+    }
+  }, repo, {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") {
+        return repo;
+      }
+      if (command === "git" && args.join(" ") === "branch --show-current") {
+        return "session_codex/010-session-close";
+      }
+      if (command === "gh" && args.join(" ") === "pr view --json url,state") {
+        return JSON.stringify({ url: "https://github.com/jkoogit/jkadh/pull/80", state: "MERGED" });
+      }
+      if (command === "gh" && args[0] === "pr" && args[1] === "create") {
+        return "https://github.com/jkoogit/jkadh/pull/81";
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(calls.join("\n"), /gh pr view --json url,state/);
+  assert.match(calls.join("\n"), /gh pr create --base dev --head session_codex\/010-session-close/);
+  assert.doesNotMatch(calls.join("\n"), /gh pr edit --title/);
 });
 
 test("session close execution blocks non-compliant issue titles", () => {

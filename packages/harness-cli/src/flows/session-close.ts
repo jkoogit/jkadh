@@ -336,7 +336,7 @@ export function buildSessionCloseReport(input: SessionCloseInput): SessionCloseR
   return {
     command: "session close",
     status,
-    markdown: report.markdown,
+    markdown: `${report.markdown}${buildNextSessionHandoffSection(input)}${buildPostCloseVerificationSection(input)}${buildIssueManagementSection(input, issueCloseReady)}`,
     json: {
       input,
       missing,
@@ -856,11 +856,58 @@ function isCompliantIssueTitle(title: string): boolean {
 
 function readExistingPrUrl(cwd: string, runner: CommandRunner): string | undefined {
   try {
-    const url = runner.run("gh", ["pr", "view", "--json", "url", "--jq", ".url"], cwd);
-    return url.trim() || undefined;
+    const output = runner.run("gh", ["pr", "view", "--json", "url,state"], cwd);
+    const pr = JSON.parse(output || "{}") as { url?: string; state?: string };
+    return pr.state === "OPEN" ? pr.url : undefined;
   } catch {
     return undefined;
   }
+}
+
+function buildNextSessionHandoffSection(input: SessionCloseInput): string {
+  const lines = [
+    "",
+    "## Next Session Handoff",
+    "",
+    `- session: ${sessionNameWithNumber(input) || "확인 필요"}`,
+    `- next start: ${input.handoff ?? "확인 필요"}`,
+    `- remaining work: ${input.remainingWork ?? "확인 필요"}`,
+    `- HCP state: ${input.sessionId ? `.hcp/sessions/*/${input.sessionId}.json` : "not linked"}`
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function buildPostCloseVerificationSection(input: SessionCloseInput): string {
+  const autoStatus = input.autoStatus;
+  const lines = [
+    "",
+    "## Post-close Verification",
+    "",
+    `- open issue/PR/backlog: ${autoStatus?.remainingWork ?? input.remainingWork ?? "확인 필요"}`,
+    `- branch alignment: ${autoStatus?.branchAlignment ?? "확인 필요"}`,
+    `- retrospective artifact: ${retrospectiveArtifactDetail(input)}`,
+    `- HCP task state: ${input.stateBlockers?.length ? input.stateBlockers.join("; ") : "no unfinished hcp tasks"}`
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+function buildIssueManagementSection(input: SessionCloseInput, issueCloseReady: boolean): string {
+  const target = input.execution?.relatedIssueNumber
+    ? `#${input.execution.relatedIssueNumber}`
+    : input.verifiedIssueNumbers.length > 0
+      ? input.verifiedIssueNumbers.map((issue) => `#${issue}`).join(", ")
+      : "none";
+  const decision = issueCloseReady ? "close verified issue candidate" : "keep issue open or no issue target";
+  const comment = input.execution?.issueComment ?? input.issueUpdate ?? input.handoff ?? "확인 필요";
+  const lines = [
+    "",
+    "## Issue Management Comment",
+    "",
+    `- target: ${target}`,
+    `- decision: ${decision}`,
+    `- content: ${comment}`
+  ];
+  return `${lines.join("\n")}\n`;
 }
 
 function markPrReady(cwd: string, runner: CommandRunner): void {

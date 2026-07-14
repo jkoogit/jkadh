@@ -160,7 +160,10 @@ async function run(argv: string[]): Promise<number> {
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), sessionState.detail));
         return 2;
       }
-      const execution = executeSessionClose(input, process.cwd());
+      const executionInput = sessionState.sessionId
+        ? enrichSessionCloseInputWithHcpState({ ...input, sessionId: sessionState.sessionId }, process.cwd())
+        : input;
+      const execution = executeSessionClose(executionInput, process.cwd());
       console.log(execution.markdown);
       completeSessionCloseState(process.cwd(), sessionState.sessionId, execution.status);
       if (sessionState.sessionId) {
