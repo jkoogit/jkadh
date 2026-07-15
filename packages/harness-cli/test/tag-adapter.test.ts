@@ -102,6 +102,25 @@ test("tag adapter accepts inline block tags", () => {
   });
 });
 
+test("tag adapter treats session close PR reuse suffix as explicit reuse approval", () => {
+  const parsed = parseHarnessTagCommand("#세션정리.PR재사용");
+  assert.deepEqual(parsed, {
+    tag: "session_close",
+    mode: "reuse"
+  });
+
+  const order = buildHarnessTagExecutionOrder(parsed);
+
+  assert.equal(order.intent, "session_close_reuse_open_pr_execute");
+  assert.deepEqual(order.steps, ["write_retrospective", "update_issue", "commit_changes", "push_branch", "reuse_open_pr", "merge_pr", "promote_branch", "close_issue"]);
+  assert.match(order.approvalJustification ?? "", /열린 세션정리 PR 재사용을 명시 승인/);
+});
+
+test("tag adapter rejects PR suffixes on unsupported flows", () => {
+  assert.equal(parseHarnessTagCommand("#세션정리.PR머지"), undefined);
+  assert.equal(parseHarnessTagCommand("#태스크정리.PR재사용"), undefined);
+});
+
 test("tag adapter rejects unsupported tags", () => {
   assert.equal(parseHarnessTag("#알수없음"), undefined);
   assert.equal(parseHarnessTagCommand("#알수없음.보고"), undefined);

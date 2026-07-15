@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -49,9 +49,27 @@ test("session close arg parser accepts closure fields and verified issues", () =
       baseBranch: "dev",
       mergePr: true,
       promote: true,
+      reuseOpenPr: false,
       targetBranches: ["stg", "main"]
     }
   });
+});
+
+test("session close arg parser accepts explicit open PR reuse approval", () => {
+  const input = parseSessionCloseArgs([
+    "--execute",
+    "--reuse-open-pr",
+    "--path",
+    "docs/12.회고/RET-001.md",
+    "--message",
+    "docs: add session retrospective",
+    "--pr-title",
+    "[073]_(001)_HCP_session_close",
+    "--related-issue",
+    "73"
+  ]);
+
+  assert.equal(input.execution?.reuseOpenPr, true);
 });
 
 test("session close arg parser accepts bare session number", () => {
@@ -193,6 +211,47 @@ test("session close auto status fills remaining work and reports branch alignmen
   assert.equal(report.status, "ready");
   assert.match(report.markdown, /auto status lookup: open backlog: 0; open issues: 1; open PRs: 0; dev\/stg\/main aligned: abc123/);
   assert.match(calls.join("\n"), /gh issue list --state open --json number,title/);
+});
+
+test("session close auto status counts unresolved backlog rows from Korean README path", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-backlog-count-"));
+  const backlogDir = join(repo, "docs", "15.로그", "backlog");
+  mkdirSync(backlogDir, { recursive: true });
+  writeFileSync(join(backlogDir, "README.md"), `
+# Backlog 미해결 인덱스
+
+| ID | 제목 | 상태 | 처리시점 | 우선순위 | 의존 대상 | 연결 Issue | 경로 |
+|---|---|---|---|---|---|---|---|
+| BLG-026 | 세션정리 다음세션 인계와 후처리 정합성 보강 | Resolved | 진행 중 | High | HCP session close | #91 | [BLG-026](./2026/07/13/BLG-026.md) |
+| BLG-027 | 세션정리 사후검증 Backlog 카운트 경로 보강 | Ready | 다음 Issue 선정 시 | High | HCP session close | - | [BLG-027](./2026/07/13/BLG-027.md) |
+`, "utf8");
+
+  const input = enrichSessionCloseInputWithAutoStatus({
+    completedTasks: ["task promote"],
+    sessionName: "Harness HCP session close",
+    issueUpdate: "Issue #73 updated",
+    retrospective: "RET draft ready",
+    retrospectiveDocument: "docs/12.회고/RET-009_2026-07-13_HCP_세션정리_회고.md",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: []
+  }, repo, {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") {
+        return repo;
+      }
+      if (command === "gh") {
+        return JSON.stringify([]);
+      }
+      if (command === "git" && args[0] === "rev-parse") {
+        return "abc123";
+      }
+      return "";
+    }
+  });
+
+  assert.equal(input.remainingWork, "open backlog: 1; open issues: 0; open PRs: 0");
+  assert.equal(input.autoStatus?.branchAlignment, "dev/stg/main aligned: abc123");
 });
 
 test("session close hcp state fills promoted tasks and verified session issue", () => {
@@ -468,6 +527,100 @@ test("session close execution ignores already merged session close PRs", () => {
   assert.match(calls.join("\n"), /gh pr view --json url,state/);
   assert.match(calls.join("\n"), /gh pr create --base dev --head session_codex\/010-session-close/);
   assert.doesNotMatch(calls.join("\n"), /gh pr edit --title/);
+});
+
+test("session close execution blocks open PR reuse without explicit approval", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-open-pr-block-"));
+  const calls: string[] = [];
+  const result = executeSessionClose({
+    completedTasks: ["task promote"],
+    sessionNumber: "010",
+    sessionName: "Harness HCP session close",
+    issueUpdate: "Issue #73 updated",
+    remainingWork: "No open task PR",
+    retrospective: "RET draft ready",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [],
+    execution: {
+      enabled: true,
+      paths: [],
+      commitMessage: "docs: add session close retrospective",
+      prTitle: "[073]_(001)_HCP_세션정리_회고문서_누락방지_보강",
+      relatedIssueNumber: 73,
+      baseBranch: "dev",
+      mergePr: false,
+      promote: false,
+      reuseOpenPr: false,
+      targetBranches: ["stg", "main"]
+    }
+  }, repo, {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") {
+        return repo;
+      }
+      if (command === "git" && args.join(" ") === "branch --show-current") {
+        return "session_codex/010-session-close";
+      }
+      if (command === "gh" && args.join(" ") === "pr view --json url,state") {
+        return JSON.stringify({ url: "https://github.com/jkoogit/jkadh/pull/80", state: "OPEN" });
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.steps.at(-1)?.detail ?? "", /#세션정리\.PR재사용/);
+  assert.match(calls.join("\n"), /gh pr view --json url,state/);
+  assert.doesNotMatch(calls.join("\n"), /gh pr edit --title/);
+  assert.doesNotMatch(calls.join("\n"), /gh pr create --base dev/);
+});
+
+test("session close execution reuses open PR only with explicit approval", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-open-pr-reuse-"));
+  const calls: string[] = [];
+  const result = executeSessionClose({
+    completedTasks: ["task promote"],
+    sessionNumber: "010",
+    sessionName: "Harness HCP session close",
+    issueUpdate: "Issue #73 updated",
+    remainingWork: "No open task PR",
+    retrospective: "RET draft ready",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [],
+    execution: {
+      enabled: true,
+      paths: [],
+      commitMessage: "docs: add session close retrospective",
+      prTitle: "[073]_(001)_HCP_세션정리_회고문서_누락방지_보강",
+      relatedIssueNumber: 73,
+      baseBranch: "dev",
+      mergePr: false,
+      promote: false,
+      reuseOpenPr: true,
+      targetBranches: ["stg", "main"]
+    }
+  }, repo, {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") {
+        return repo;
+      }
+      if (command === "git" && args.join(" ") === "branch --show-current") {
+        return "session_codex/010-session-close";
+      }
+      if (command === "gh" && args.join(" ") === "pr view --json url,state") {
+        return JSON.stringify({ url: "https://github.com/jkoogit/jkadh/pull/80", state: "OPEN" });
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(calls.join("\n"), /gh pr edit --title \[073\]_\(001\)_HCP_세션정리_회고문서_누락방지_보강/);
+  assert.doesNotMatch(calls.join("\n"), /gh pr create --base dev/);
 });
 
 test("session close execution blocks non-compliant issue titles", () => {

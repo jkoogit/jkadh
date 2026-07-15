@@ -2,9 +2,9 @@
 
 import { checkGate, type HarnessAction, type HarnessTag } from "./gates/check-gate.ts";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseBacklogIndex } from "./docs/backlog-index.ts";
+import { hasBacklogIndexEntry, parseBacklogIndex } from "./docs/backlog-index.ts";
 import { parseRetrospectiveDetail } from "./docs/retrospective-detail.ts";
 import { parseLatestRetrospective } from "./docs/retrospective-index.ts";
 import { readInternalGitStatus } from "./git/git-status.ts";
@@ -55,11 +55,11 @@ const requiredEnvNames = [
 function printUsage(): void {
   console.log(`Usage:
   jkadh session start [project_id]
-  jkadh session close [--execute --verified-issue <number>]
+  jkadh session close [--execute --verified-issue <number> --reuse-open-pr]
   jkadh task start [--execute --issue-title <title> --branch <branch>]
   jkadh task close [--execute --path <path> --message <message> --pr-title <title> --base dev]
   jkadh task promote [--target-commit <sha> --target-branches stg,main --execute]
-  jkadh tag <#세션시작|#태스크시작|#태스크정리|#태스크승급|#세션정리>[.보고]
+  jkadh tag <#세션시작|#태스크시작|#태스크정리|#태스크승급|#세션정리>[.보고|.PR재사용]
   jkadh gate check <tag> <action>
   jkadh hcp session update --session-id <id> --session-name <name>
   jkadh hcp task update --session-id <id> --task-id <id> --task-name <name>
@@ -399,8 +399,26 @@ const exitCode = await run(process.argv.slice(2));
 process.exitCode = exitCode;
 
 function readBacklogCandidates(repoRoot: string) {
-  const markdown = readFileSync(join(repoRoot, "docs/15.로그/backlog/README.md"), "utf8");
+  const markdown = readFileSync(backlogIndexReadmePath(repoRoot), "utf8");
   return parseBacklogIndex(markdown);
+}
+
+function buildBacklogIndexSyncDetail(repoRoot: string, item: { backlogId?: string; path?: string }): string {
+  const readmePath = backlogIndexReadmePath(repoRoot);
+  if (!existsSync(readmePath)) {
+    return "backlog index: missing README";
+  }
+  if (!item.backlogId && !item.path) {
+    return "backlog index: not verifiable; backlog-id or path required";
+  }
+  const markdown = readFileSync(readmePath, "utf8");
+  return hasBacklogIndexEntry(markdown, item)
+    ? "backlog index: reflected"
+    : "backlog index: missing entry; update docs/15.로그/backlog/README.md";
+}
+
+function backlogIndexReadmePath(repoRoot: string): string {
+  return join(repoRoot, "docs", "15.\uB85C\uADF8", "backlog", "README.md");
 }
 
 function readLatestRetrospective(repoRoot: string) {
@@ -702,7 +720,10 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
         path: options.path,
         note: options.note
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), options["session-id"]), `added backlog: ${item.hcpBacklogId}`));
+      console.log(buildHcpStateMarkdown(
+        buildHcpStateSummary(process.cwd(), options["session-id"]),
+        `added backlog: ${item.hcpBacklogId}; ${buildBacklogIndexSyncDetail(process.cwd(), item)}`
+      ));
       return 0;
     }
     if (target === "backlog" && action === "update") {
@@ -817,6 +838,9 @@ export function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report" | "me
   }
   if (tag === "session_close") {
     const normalizedArgs = normalizeSessionNumberTagArgs(args);
+    if (mode === "reuse") {
+      return ["session", "close", "--execute", "--reuse-open-pr", ...normalizedArgs];
+    }
     return mode === "execute" ? ["session", "close", "--execute", ...normalizedArgs] : ["session", "close", ...normalizedArgs];
   }
   return ["report", "create"];
