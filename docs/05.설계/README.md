@@ -16,6 +16,7 @@
 | DSN-004 | [Harness DB 운영데이터 설계](./DSN-004_Harness_DB_운영데이터_설계.md) | Draft |
 | DSN-008 | [DB 테이블 설계서](./DSN-008_DB_테이블_설계서.md) | Draft |
 | DSN-009 | [HCP JSON DB 매핑 설계](./DSN-009_HCP_JSON_DB_매핑_설계.md) | Draft |
+| DSN-010 | [HCP DB write-store 전환 설계](./DSN-010_HCP_DB_write-store_전환_설계.md) | Draft |
 
 ## 포함 예정 문서
 
