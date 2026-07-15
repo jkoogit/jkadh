@@ -5,3 +5,9 @@
 모든 커밋마다 이력 파일을 만들지 않는다. 사용자가 명시적으로 요청한 경우에만 당시 설계 판단, 주요 변경점, 보류 쟁점, 다음 검토 지점을 별도 파일로 남긴다.
 
 `DSN-008_DB_테이블_설계서.md`의 첫 이력 snapshot은 초안 검토가 끝난 뒤 사용자 요청이 있을 때 생성한다.
+
+## Snapshot 목록
+
+| 문서 ID | Snapshot | 기준 일자 | 설명 |
+|---|---|---|---|
+| DSN-008 | [DSN-008_2026-07-16_DB_테이블_설계서_HCP확장_snapshot](./DSN-008_2026-07-16_DB_테이블_설계서_HCP확장_snapshot.md) | 2026-07-16 | HCP session/task/PR/backlog/issue/branch 테이블 확장과 DSN-009 매핑 설계 이후 첫 history snapshot |
