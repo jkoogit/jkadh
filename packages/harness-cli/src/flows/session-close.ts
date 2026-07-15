@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { countUnresolvedBacklogEntries } from "../docs/backlog-index.ts";
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, readSessionById, resolveActiveSession } from "../state/session-state.ts";
@@ -39,6 +40,7 @@ export interface SessionCloseExecutionOptions {
   baseBranch: string;
   mergePr: boolean;
   promote: boolean;
+  reuseOpenPr: boolean;
   targetBranches: string[];
 }
 
@@ -95,6 +97,7 @@ export function parseSessionCloseArgs(args: string[]): SessionCloseInput {
     baseBranch: "dev",
     mergePr: true,
     promote: true,
+    reuseOpenPr: false,
     targetBranches: ["stg", "main"]
   };
 
@@ -113,6 +116,10 @@ export function parseSessionCloseArgs(args: string[]): SessionCloseInput {
     }
     if (key === "--no-promote") {
       execution.promote = false;
+      continue;
+    }
+    if (key === "--reuse-open-pr") {
+      execution.reuseOpenPr = true;
       continue;
     }
     if (isSessionNumberToken(key)) {
@@ -499,10 +506,14 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
     if (action === "create_pr") {
       const branch = runner.run("git", ["branch", "--show-current"], cwd);
       const body = input.execution.prBody ?? buildDefaultPrBody(input.execution);
-      const existingPrUrl = readExistingPrUrl(cwd, runner);
-      if (existingPrUrl) {
+      const existingPr = readExistingPr(cwd, runner);
+      if (existingPr?.state === "OPEN") {
+        if (!input.execution.reuseOpenPr) {
+          steps.push({ action, status: "blocked", detail: buildOpenPrReuseBlockedDetail(existingPr.url) });
+          return buildExecutionResult("blocked", steps);
+        }
         runner.run("gh", ["pr", "edit", "--title", input.execution.prTitle ?? "", "--body", body], cwd);
-        steps.push({ action, status: "executed", detail: `${existingPrUrl} updated` });
+        steps.push({ action, status: "executed", detail: `${existingPr.url ?? "open PR"} updated by explicit reuse approval` });
         continue;
       }
       const prUrl = runner.run("gh", [
@@ -633,16 +644,12 @@ function readGhItemCount(cwd: string, runner: CommandRunner, args: string[]): nu
 }
 
 function readOpenBacklogCount(repoRoot: string): number {
-  const readmePath = join(repoRoot, "docs", "15.로그", "backlog", "README.md");
+  const readmePath = join(repoRoot, "docs", "15.\uB85C\uADF8", "backlog", "README.md");
   if (!existsSync(readmePath)) {
     return 0;
   }
   const markdown = readFileSync(readmePath, "utf8");
-  return markdown
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("| BLG-"))
-    .filter((line) => !/\|\s*(Done|Closed|Resolved)\s*\|/i.test(line))
-    .length;
+  return countUnresolvedBacklogEntries(markdown);
 }
 
 function readRemoteBranchAlignment(cwd: string, runner: CommandRunner): string {
@@ -812,7 +819,8 @@ function hasPrExecutionIntent(execution: SessionCloseExecutionOptions): boolean 
   return execution.paths.length > 0
     || Boolean(execution.commitMessage)
     || Boolean(execution.prTitle)
-    || Boolean(execution.prBody);
+    || Boolean(execution.prBody)
+    || execution.reuseOpenPr;
 }
 
 function missingPrExecutionOptions(execution: SessionCloseExecutionOptions): string[] {
@@ -854,14 +862,26 @@ function isCompliantIssueTitle(title: string): boolean {
   return /^\[\d{3}\]_\[[^\]]+\]_.+/.test(title);
 }
 
-function readExistingPrUrl(cwd: string, runner: CommandRunner): string | undefined {
+function readExistingPr(cwd: string, runner: CommandRunner): { url?: string; state?: string } | undefined {
   try {
     const output = runner.run("gh", ["pr", "view", "--json", "url,state"], cwd);
     const pr = JSON.parse(output || "{}") as { url?: string; state?: string };
-    return pr.state === "OPEN" ? pr.url : undefined;
+    return pr;
   } catch {
     return undefined;
   }
+}
+
+function buildOpenPrReuseBlockedDetail(prUrl?: string): string {
+  return [
+    `open PR detected: ${prUrl ?? "unknown"}`,
+    "explicit #세션정리.PR재사용 approval is required before updating an open session close PR",
+    "retry order:",
+    "#세션정리.PR재사용{",
+    `대상: ${prUrl ?? "PR #확인필요"}`,
+    "사유: 현재 브랜치에 열린 세션정리 PR이 있어 기존 PR을 갱신해 계속 진행",
+    "}"
+  ].join("\n");
 }
 
 function buildNextSessionHandoffSection(input: SessionCloseInput): string {
@@ -1100,6 +1120,7 @@ function withExecutionDefaults(execution: SessionCloseExecutionOptions): Session
     baseBranch: execution.baseBranch ?? "dev",
     mergePr: execution.mergePr ?? true,
     promote: execution.promote ?? true,
+    reuseOpenPr: execution.reuseOpenPr ?? false,
     targetBranches: execution.targetBranches ?? ["stg", "main"]
   };
 }

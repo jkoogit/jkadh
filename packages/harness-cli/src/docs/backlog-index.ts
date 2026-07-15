@@ -24,3 +24,24 @@ export function parseBacklogIndex(markdown: string): BacklogIndexEntry[] {
       };
     });
 }
+
+export function countUnresolvedBacklogEntries(markdown: string): number {
+  return parseBacklogIndex(markdown)
+    .filter((entry) => !/^(Done|Closed|Resolved|Rejected)$/i.test(entry.status))
+    .length;
+}
+
+export function hasBacklogIndexEntry(markdown: string, input: { backlogId?: string; path?: string }): boolean {
+  const entries = parseBacklogIndex(markdown);
+  return entries.some((entry) =>
+    Boolean(input.backlogId && entry.id === input.backlogId)
+    || Boolean(input.path && normalizePath(entry.path) === normalizePath(input.path))
+  );
+}
+
+function normalizePath(path: string): string {
+  return path
+    .replace(/\\/g, "/")
+    .replace(/^docs\/15\.로그\/backlog\//, "")
+    .replace(/^\.\//, "");
+}

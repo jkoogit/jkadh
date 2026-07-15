@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { parseBacklogIndex } from "../src/docs/backlog-index.ts";
+import { countUnresolvedBacklogEntries, hasBacklogIndexEntry, parseBacklogIndex } from "../src/docs/backlog-index.ts";
 import { parseLatestRetrospective } from "../src/docs/retrospective-index.ts";
 
 test("backlog index parser returns unresolved backlog rows", () => {
@@ -30,6 +30,21 @@ test("backlog index parser returns unresolved backlog rows", () => {
       path: "./2026/07/12/BLG-025_회고문서_Codex채팅세션_Agent_매핑과_채번기준_보강.md"
     }
   ]);
+});
+
+test("backlog index helpers count unresolved rows and match id or path", () => {
+  const markdown = `
+| ID | 제목 | 상태 | 처리시점 | 우선순위 | 의존 대상 | 연결 Issue | 경로 |
+|---|---|---|---|---|---|---|---|
+| BLG-026 | 세션정리 다음세션 인계와 후처리 정합성 보강 | Resolved | 진행 중 | High | HCP session close | #91 | [BLG-026](./2026/07/13/BLG-026.md) |
+| BLG-027 | 세션정리 사후검증 Backlog 카운트 경로 보강 | Ready | 다음 Issue 선정 시 | High | HCP session close | - | [BLG-027](./2026/07/13/BLG-027.md) |
+`;
+
+  assert.equal(countUnresolvedBacklogEntries(markdown), 1);
+  assert.equal(hasBacklogIndexEntry(markdown, { backlogId: "BLG-027" }), true);
+  assert.equal(hasBacklogIndexEntry(markdown, { path: "2026/07/13/BLG-027.md" }), true);
+  assert.equal(hasBacklogIndexEntry(markdown, { path: "./2026/07/13/BLG-027.md" }), true);
+  assert.equal(hasBacklogIndexEntry(markdown, { path: "docs/15.로그/backlog/2026/07/13/BLG-027.md" }), true);
 });
 
 test("retrospective parser returns latest RET document by id", () => {

@@ -1,6 +1,6 @@
 import type { HarnessTag } from "../gates/check-gate.ts";
 
-export type HarnessTagMode = "execute" | "report" | "merge";
+export type HarnessTagMode = "execute" | "report" | "merge" | "reuse";
 
 export interface ParsedHarnessTag {
   tag: HarnessTag;
@@ -33,18 +33,29 @@ export function parseHarnessTagCommand(input: string): ParsedHarnessTag | undefi
   const [firstToken] = input.trim().split(/\s+/);
   const reportSuffix = ".보고";
   const mergeSuffix = ".PR머지";
+  const reuseSuffix = ".PR재사용";
   const tagToken = firstToken.replace(/\{[\s\S]*$/, "");
   const mode: HarnessTagMode = tagToken.endsWith(reportSuffix)
     ? "report"
     : tagToken.endsWith(mergeSuffix)
       ? "merge"
-      : "execute";
+      : tagToken.endsWith(reuseSuffix)
+        ? "reuse"
+        : "execute";
   const normalizedToken = mode === "report"
     ? tagToken.slice(0, -reportSuffix.length)
     : mode === "merge"
       ? tagToken.slice(0, -mergeSuffix.length)
-      : tagToken;
+      : mode === "reuse"
+        ? tagToken.slice(0, -reuseSuffix.length)
+        : tagToken;
   const tag = tagMap.get(normalizedToken);
+  if (mode === "merge" && tag !== "task_close") {
+    return undefined;
+  }
+  if (mode === "reuse" && tag !== "session_close") {
+    return undefined;
+  }
   return tag ? { tag, mode } : undefined;
 }
 
@@ -72,6 +83,18 @@ export function buildHarnessTagExecutionOrder(parsed: ParsedHarnessTag): Harness
       mode: parsed.mode,
       intent: "task_close_report",
       steps: ["read_status", "create_report"]
+    };
+  }
+
+  if (parsed.tag === "session_close" && parsed.mode === "reuse") {
+    return {
+      tag: parsed.tag,
+      mode: parsed.mode,
+      intent: "session_close_reuse_open_pr_execute",
+      steps: ["write_retrospective", "update_issue", "commit_changes", "push_branch", "reuse_open_pr", "merge_pr", "promote_branch", "close_issue"],
+      sharedBranchWrite: "dev",
+      approvalEquivalence: "#세션정리.PR재사용 입력은 현재 브랜치에 열린 세션정리 PR 갱신과 후속 merge/promote 진행을 명시 승인한다.",
+      approvalJustification: "사용자가 #세션정리.PR재사용으로 열린 세션정리 PR 재사용을 명시 승인했으므로 기존 PR 갱신 후 merge/promote를 계속 진행한다."
     };
   }
 
