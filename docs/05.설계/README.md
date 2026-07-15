@@ -15,6 +15,7 @@
 | DSN-003 | [AI개발플랫폼 멀티레포 Harness 운영구조](./DSN-003_AI개발플랫폼_멀티레포_Harness_운영구조.md) | Draft |
 | DSN-004 | [Harness DB 운영데이터 설계](./DSN-004_Harness_DB_운영데이터_설계.md) | Draft |
 | DSN-008 | [DB 테이블 설계서](./DSN-008_DB_테이블_설계서.md) | Draft |
+| DSN-009 | [HCP JSON DB 매핑 설계](./DSN-009_HCP_JSON_DB_매핑_설계.md) | Draft |
 
 ## 포함 예정 문서
 
