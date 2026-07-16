@@ -4,6 +4,7 @@ import { checkGate, type HarnessAction, type HarnessTag } from "./gates/check-ga
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createBacklogDocument } from "./docs/backlog-document.ts";
 import { hasBacklogIndexEntry, parseBacklogIndex } from "./docs/backlog-index.ts";
 import { parseRetrospectiveDetail } from "./docs/retrospective-detail.ts";
 import { parseLatestRetrospective } from "./docs/retrospective-index.ts";
@@ -713,6 +714,35 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
       return 0;
     }
     if (target === "backlog" && action === "add") {
+      if (options.document || !options["session-id"]) {
+        const result = createBacklogDocument(process.cwd(), {
+          title: requiredOption(options, "title"),
+          status: options.status,
+          type: options.type,
+          date: options.date,
+          timing: options.timing,
+          priority: options.priority,
+          dependency: options.dependency,
+          source: options.source,
+          content: options.content,
+          background: options.background,
+          expectedEffect: options["expected-effect"],
+          criteria: options.criteria
+        });
+        console.log([
+          "# Harness CLI backlog add",
+          "",
+          "Document Backlog created and indexed.",
+          "",
+          "## Checks",
+          "",
+          `- [pass] backlog id: ${result.backlogId}`,
+          `- [pass] document path: ${result.filePath}`,
+          `- [pass] backlog index: ${result.indexPath}`,
+          `- [${result.gate.status}] ${result.gate.detail}`
+        ].join("\n") + "\n");
+        return 0;
+      }
       const item = addHcpBacklog(process.cwd(), {
         sessionId: requiredOption(options, "session-id"),
         title: requiredOption(options, "title"),
@@ -912,8 +942,30 @@ function normalizeHcpAliasBlockKey(key: string): string | undefined {
     "hcpbacklogid": "--hcp-backlog-id",
     "제목": "--title",
     "title": "--title",
+    "문서": "--document",
+    "document": "--document",
+    "유형": "--type",
+    "type": "--type",
     "상태": "--status",
     "status": "--status",
+    "처리시점": "--timing",
+    "timing": "--timing",
+    "우선순위": "--priority",
+    "priority": "--priority",
+    "의존대상": "--dependency",
+    "dependency": "--dependency",
+    "출처": "--source",
+    "source": "--source",
+    "내용": "--content",
+    "content": "--content",
+    "배경": "--background",
+    "background": "--background",
+    "기대효과": "--expected-effect",
+    "expectedeffect": "--expected-effect",
+    "처리기준": "--criteria",
+    "criteria": "--criteria",
+    "날짜": "--date",
+    "date": "--date",
     "브랜치명": "--branch-name",
     "branchname": "--branch-name",
     "이슈": "--issue",
