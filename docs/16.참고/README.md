@@ -21,6 +21,7 @@
 | REF-008 | [Harness 세션정리 사용방법](./REF-008_Harness_세션정리_사용방법.md) | Draft |
 | REF-009 | [Harness 환경대응 호환성 이력](./REF-009_Harness_환경대응_호환성_이력.md) | Draft |
 | REF-010 | [Harness Backlog 경량처리 사용방법](./REF-010_Harness_Backlog_경량처리_사용방법.md) | Draft |
+| REF-011 | [세션 태스크 범위확장 판단기준](./REF-011_세션_태스크_범위확장_판단기준.md) | Draft |
 
 ## 포함 예정 문서
 
