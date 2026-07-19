@@ -1,7 +1,7 @@
 # BLG-029 Harness 세션정리 안전성 및 토큰 효율성 개선
 
 > Backlog ID: BLG-029
-> 상태: Open
+> 상태: Issue Linked
 > 유형: HCP
 > 생성일: 2026-07-17
 > 처리시점: 다음 Issue 선정 시
@@ -12,7 +12,7 @@
 > - -
 > 관련 문서:
 > - -
-> 연결 Issue: None
+> 연결 Issue: [#117](https://github.com/jkoogit/jkadh/issues/117)
 > 연결 PR: None
 > 해결 문서: None
 
@@ -45,5 +45,6 @@
 | 날짜 | 상태 | 연결 대상 | 내용 |
 |---|---|---|---|
 | 2026-07-17 | Open | - | Backlog 최초 등록 |
+| 2026-07-18 | Issue Linked | [#117](https://github.com/jkoogit/jkadh/issues/117) | Harness 세션정리 안전성 및 토큰 효율성 개선 작업 Issue로 연결 |
 
 [목차로 이동](#목차)

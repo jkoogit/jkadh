@@ -249,7 +249,53 @@ PR 순번 `(001)`은 자동 채번하지 않는다. `--pr-title`로 명시한다
 
 승급은 `dev` 머지 결과를 `stg`, `main`에 반영한 뒤 원격 브랜치 커밋이 같은지 검증한다.
 
-## 8. Issue 종료
+## 8. 실행 안전 게이트와 요약 출력
+
+`session close --execute`는 쓰기 작업 전에 현재 브랜치를 확인한다. 현재 브랜치가 `dev`, `stg`, `main`이면 회고 작성, 커밋, push, PR 생성, 승급, Issue 종료를 시작하지 않고 blocked로 중단한다. 세션정리 산출물은 별도 작업 브랜치에서 생성해야 한다.
+
+PR 산출물 반영이 요청된 경우 현재 브랜치가 PR base와 같으면 head/base 동일 조건으로 보고 쓰기 작업 전에 blocked로 중단한다. 이 조건은 GitHub PR 생성 실패가 난 뒤 복구하는 대신, 로컬 파일 쓰기와 원격 push 전에 차단하는 것을 목표로 한다.
+
+회고 산출물을 자동 생성할 때는 생성 전과 생성 직후 `git diff --check`를 실행한다. 둘 중 하나라도 실패하면 이후 commit, push, PR, 승급 단계로 진행하지 않는다.
+
+PR 생성 또는 이후 쓰기 단계에서 예외가 발생하면 실행 결과에 recovery report를 출력한다. recovery report에는 실패 action, 현재 branch, commit 생성 여부, push 여부, 남은 조치를 포함한다.
+
+세션정리 report는 REF 전문을 반복 출력하지 않고 다음 요약 구조를 사용한다.
+
+| 구조 | 용도 |
+|---|---|
+| `appliedPolicies` | 적용한 REF/POL ID와 짧은 적용 판단 요약 |
+| `scopeDecision` | 세션정리 범위의 허용/차단 판단과 핵심 사유 |
+
+REF 전문은 신규 기준을 처음 정의하거나 사람이 전문 확인을 요청한 경우에만 별도로 열람한다. 일반 보고와 HCP handoff에는 정책 ID와 판정 요약만 남긴다.
+
+### 8.1 차단 시 조치
+
+| 차단 조건 | 의미 | 조치 |
+|---|---|---|
+| protected branch | 현재 브랜치가 `dev`, `stg`, `main`이라 주요 브랜치 직접 쓰기 위험이 있다. | `origin/main` 또는 현재 기준 커밋에서 `session_codex/*` 또는 `task_codex/*` 작업 브랜치를 만들고 다시 실행한다. |
+| head/base 동일 | PR base와 현재 브랜치가 같아 GitHub PR 생성이 실패할 조건이다. | `--base dev`는 유지하고 현재 브랜치를 별도 작업 브랜치로 전환한다. 이미 커밋이 있으면 커밋을 작업 브랜치로 옮긴 뒤 다시 실행한다. |
+| pre-retrospective diff check 실패 | 회고 생성 전 작업트리에 공백/패치 오류가 있다. | 기존 변경의 `git diff --check` 오류를 먼저 수정한 뒤 재실행한다. |
+| post-retrospective diff check 실패 | 자동 생성된 회고 또는 인덱스 변경에 공백/패치 오류가 있다. | 생성된 회고 문서와 `docs/12.회고/README.md`의 오류를 수정한 뒤 commit/push/PR 단계를 다시 시도한다. |
+| open PR 재사용 차단 | 현재 브랜치에 open PR이 있고 명시 재사용 승인이 없다. | 기존 PR을 갱신하려면 `#세션정리.PR재사용` 승인 흐름으로 재실행한다. 새 PR이 필요하면 브랜치를 분리한다. |
+
+차단은 실패가 아니라 쓰기 작업을 시작하기 전 위험 조건을 확인한 결과다. 차단된 경우에는 출력된 조건을 해소한 뒤 같은 명령을 다시 실행한다.
+
+### 8.2 Recovery Report 해석
+
+`recovery report`는 예외 발생 시 실행이 어디까지 진행됐는지 판단하기 위한 복구 정보다.
+
+| 항목 | 해석 |
+|---|---|
+| `failed action` | 실패가 발생한 실행 단계다. `create_pr`이면 commit/push 이후 PR 생성에서 실패했을 수 있다. |
+| `branch` | 실패 당시 작업 브랜치다. 후속 조치는 이 브랜치를 기준으로 확인한다. |
+| `created commit` | `yes`이면 로컬 커밋이 생성된 상태다. amend, 추가 commit, PR 생성 중 하나를 선택한다. |
+| `pushed branch` | `yes`이면 원격 브랜치에도 push된 상태다. 원격 PR 생성/갱신 또는 브랜치 정리 여부를 확인한다. |
+| `remaining action` | Harness가 권장하는 다음 조치다. 사람이 현재 브랜치와 PR 상태를 확인한 뒤 이어간다. |
+| `failure` | 원본 예외 메시지다. 네트워크, 인증, GitHub API 응답, 명령 옵션 오류를 구분하는 근거로 사용한다. |
+
+`created commit: no`, `pushed branch: no`이면 보통 로컬 파일 수정 전 또는 커밋 전 차단이므로 조건을 수정하고 재실행하면 된다. `created commit: yes`, `pushed branch: no`이면 로컬 커밋만 있는 상태이므로 커밋 내용을 확인한 뒤 push 또는 amend를 선택한다. `pushed branch: yes`이면 원격 상태가 이미 바뀌었으므로 PR 생성/갱신, 브랜치 정리, 재실행 중 하나를 명시적으로 선택한다.
+
+## 9. Issue 종료
 
 Issue 종료는 `#세션정리`에서만 가능하다. `--verified-issue`가 있는 경우에만 종료한다.
 

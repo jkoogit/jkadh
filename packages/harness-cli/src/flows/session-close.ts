@@ -60,6 +60,8 @@ export interface SessionCloseReport {
     missing: string[];
     decisionRequired: string[];
     issueCloseReady: boolean;
+    appliedPolicies: PolicySummary[];
+    scopeDecision: ScopeDecisionSummary;
   };
   blockedActions: string[];
 }
@@ -76,6 +78,26 @@ export interface SessionCloseExecutionResult {
     status: "executed" | "blocked" | "skipped";
     detail: string;
   }[];
+}
+
+interface PolicySummary {
+  id: string;
+  decision: "applied" | "not_applicable";
+  summary: string;
+}
+
+interface ScopeDecisionSummary {
+  scope: "session_close";
+  decision: "allowed" | "blocked";
+  summary: string;
+}
+
+interface SessionCloseRecoveryState {
+  branch?: string;
+  createdCommit: boolean;
+  pushedBranch: boolean;
+  failedAction?: HarnessAction;
+  failure?: string;
 }
 
 const blockedActions = ["write_retrospective", "update_issue", "commit_changes", "push_branch", "create_pr", "merge_pr", "promote_branch", "close_issue"];
@@ -263,6 +285,8 @@ export function buildSessionCloseReport(input: SessionCloseInput): SessionCloseR
   const issueCloseReady = input.verifiedIssueNumbers.length > 0;
   const decisionRequired = buildDecisionRequired(input, missing, issueCloseReady);
   const status = missing.length === 0 ? "ready" : "blocked";
+  const appliedPolicies = buildAppliedPolicySummary(input);
+  const scopeDecision = buildScopeDecisionSummary(input, status);
   const report = createReportDocument({
     title: "Harness CLI session close",
     summary: "Summarize session closure evidence and verified issue-close candidates.",
@@ -343,12 +367,14 @@ export function buildSessionCloseReport(input: SessionCloseInput): SessionCloseR
   return {
     command: "session close",
     status,
-    markdown: `${report.markdown}${buildNextSessionHandoffSection(input)}${buildPostCloseVerificationSection(input)}${buildIssueManagementSection(input, issueCloseReady)}`,
+    markdown: `${report.markdown}${buildPolicyScopeSummarySection(appliedPolicies, scopeDecision)}${buildNextSessionHandoffSection(input)}${buildPostCloseVerificationSection(input)}${buildIssueManagementSection(input, issueCloseReady)}`,
     json: {
       input,
       missing,
       decisionRequired,
-      issueCloseReady
+      issueCloseReady,
+      appliedPolicies,
+      scopeDecision
     },
     blockedActions
   };
@@ -404,7 +430,19 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
   input.execution = withExecutionDefaults(input.execution);
 
   const steps: SessionCloseExecutionResult["steps"] = [];
-  for (const action of executionActions) {
+  const recovery: SessionCloseRecoveryState = {
+    createdCommit: false,
+    pushedBranch: false
+  };
+  const startupGate = checkSessionCloseExecutionStartupGate(input.execution, cwd, runner);
+  recovery.branch = startupGate.branch;
+  if (startupGate.status === "blocked") {
+    steps.push({ action: "check_gate", status: "blocked", detail: startupGate.detail });
+    return buildExecutionResult("blocked", steps);
+  }
+
+  try {
+    for (const action of executionActions) {
     if (action === "write_retrospective" && input.retrospectiveDeferredReason) {
       steps.push({ action, status: "skipped", detail: `retrospective deferred: ${input.retrospectiveDeferredReason}` });
       continue;
@@ -429,9 +467,19 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
     }
 
     if (action === "write_retrospective") {
+      const beforeDiffCheck = runDiffCheck(cwd, runner);
+      if (beforeDiffCheck.status === "blocked") {
+        steps.push({ action, status: "blocked", detail: `pre-retrospective git diff --check failed: ${beforeDiffCheck.detail}` });
+        return buildExecutionResult("blocked", steps);
+      }
       const artifact = writeNumberedSessionRetrospectiveArtifact(input, cwd, runner);
       input.retrospectiveDocument = artifact.relativePath;
       input.execution.paths.push(...artifact.changedPaths);
+      const afterDiffCheck = runDiffCheck(cwd, runner);
+      if (afterDiffCheck.status === "blocked") {
+        steps.push({ action, status: "blocked", detail: `post-retrospective git diff --check failed: ${afterDiffCheck.detail}` });
+        return buildExecutionResult("blocked", steps);
+      }
       steps.push({ action, status: "executed", detail: `created ${artifact.relativePath}` });
       continue;
     }
@@ -492,13 +540,16 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
     if (action === "commit_changes") {
       runner.run("git", ["add", "--", ...unique(input.execution.paths)], cwd);
       runner.run("git", ["commit", "-m", input.execution.commitMessage ?? ""], cwd);
+      recovery.createdCommit = true;
       steps.push({ action, status: "executed", detail: `committed ${unique(input.execution.paths).length} path(s)` });
       continue;
     }
 
     if (action === "push_branch") {
       const branch = runner.run("git", ["branch", "--show-current"], cwd);
+      recovery.branch = branch;
       runner.run("git", ["push", "origin", branch], cwd);
+      recovery.pushedBranch = true;
       steps.push({ action, status: "executed", detail: `pushed ${branch}` });
       continue;
     }
@@ -574,6 +625,13 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
       });
     }
   }
+  } catch (error) {
+    const failedAction = inferFailedAction(steps);
+    recovery.failedAction = failedAction;
+    recovery.failure = error instanceof Error ? error.message : "session close execution failed";
+    steps.push({ action: failedAction, status: "blocked", detail: recovery.failure });
+    return buildExecutionResult("blocked", steps, recovery);
+  }
 
   return buildExecutionResult("executed", steps);
 }
@@ -605,6 +663,98 @@ function missingFields(input: SessionCloseInput): string[] {
     missing.push("unfinished hcp tasks");
   }
   return missing;
+}
+
+function buildAppliedPolicySummary(input: SessionCloseInput): PolicySummary[] {
+  return [
+    {
+      id: "REF-008",
+      decision: "applied",
+      summary: "session close requires closure evidence, retrospective handling, handoff, and verified issue-close candidates"
+    },
+    {
+      id: "REF-011",
+      decision: "applied",
+      summary: "session/task scope is summarized by decision outcome instead of repeating the full reference text"
+    },
+    {
+      id: "POL-006",
+      decision: input.execution?.enabled ? "applied" : "not_applicable",
+      summary: input.execution?.enabled
+        ? "machine checks gate write execution and promotion"
+        : "machine checks are deferred until execution mode"
+    }
+  ];
+}
+
+function buildScopeDecisionSummary(input: SessionCloseInput, status: SessionCloseReport["status"]): ScopeDecisionSummary {
+  const blockers = missingFields(input);
+  return {
+    scope: "session_close",
+    decision: status === "ready" ? "allowed" : "blocked",
+    summary: status === "ready"
+      ? "closure evidence is complete; execution still requires per-action safety gates"
+      : `closure evidence incomplete: ${blockers.join("; ")}`
+  };
+}
+
+function checkSessionCloseExecutionStartupGate(
+  execution: SessionCloseExecutionOptions,
+  cwd: string,
+  runner: CommandRunner
+): { status: "ready" | "blocked"; branch?: string; detail: string } {
+  const branch = readCurrentBranch(cwd, runner);
+  if (!branch) {
+    return { status: "ready", detail: "current branch unavailable; later git steps will validate repository state" };
+  }
+  if (isProtectedBranch(branch)) {
+    return {
+      status: "blocked",
+      branch,
+      detail: `session close --execute cannot run directly on protected branch ${branch}; create a session close work branch first`
+    };
+  }
+  if (hasPrExecutionIntent(execution) && branch === execution.baseBranch) {
+    return {
+      status: "blocked",
+      branch,
+      detail: `PR head and base are identical (${branch}); checkout a work branch before write actions`
+    };
+  }
+  return { status: "ready", branch, detail: `current branch ${branch}` };
+}
+
+function readCurrentBranch(cwd: string, runner: CommandRunner): string | undefined {
+  try {
+    return runner.run("git", ["branch", "--show-current"], cwd).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isProtectedBranch(branch: string): boolean {
+  return ["dev", "stg", "main"].includes(branch);
+}
+
+function runDiffCheck(cwd: string, runner: CommandRunner): { status: "pass" | "blocked"; detail: string } {
+  try {
+    runner.run("git", ["diff", "--check"], cwd);
+    return { status: "pass", detail: "git diff --check passed" };
+  } catch (error) {
+    return {
+      status: "blocked",
+      detail: error instanceof Error ? error.message : "git diff --check failed"
+    };
+  }
+}
+
+function inferFailedAction(steps: SessionCloseExecutionResult["steps"]): HarnessAction {
+  const last = steps.at(-1);
+  if (!last) {
+    return "check_gate";
+  }
+  const nextIndex = executionActions.indexOf(last.action) + 1;
+  return executionActions[nextIndex] ?? last.action;
 }
 
 function readSessionCloseAutoStatus(cwd: string, runner: CommandRunner): SessionCloseAutoStatus {
@@ -930,6 +1080,27 @@ function buildIssueManagementSection(input: SessionCloseInput, issueCloseReady: 
   return `${lines.join("\n")}\n`;
 }
 
+function buildPolicyScopeSummarySection(
+  appliedPolicies: PolicySummary[],
+  scopeDecision: ScopeDecisionSummary
+): string {
+  const lines = [
+    "",
+    "## Policy And Scope Summary",
+    "",
+    "### appliedPolicies",
+    "",
+    ...appliedPolicies.map((policy) => `- ${policy.id} [${policy.decision}]: ${policy.summary}`),
+    "",
+    "### scopeDecision",
+    "",
+    `- scope: ${scopeDecision.scope}`,
+    `- decision: ${scopeDecision.decision}`,
+    `- summary: ${scopeDecision.summary}`
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
 function markPrReady(cwd: string, runner: CommandRunner): void {
   try {
     runner.run("gh", ["pr", "ready"], cwd);
@@ -1135,7 +1306,11 @@ const defaultCommandRunner: CommandRunner = {
   }
 };
 
-function buildExecutionResult(status: SessionCloseExecutionResult["status"], steps: SessionCloseExecutionResult["steps"]): SessionCloseExecutionResult {
+function buildExecutionResult(
+  status: SessionCloseExecutionResult["status"],
+  steps: SessionCloseExecutionResult["steps"],
+  recovery?: SessionCloseRecoveryState
+): SessionCloseExecutionResult {
   const markdown = [
     "# Harness CLI session close execution",
     "",
@@ -1148,7 +1323,30 @@ function buildExecutionResult(status: SessionCloseExecutionResult["status"], ste
 
   return {
     status,
-    markdown: `${markdown}\n`,
+    markdown: `${markdown}${buildRecoveryReportSection(recovery)}\n`,
     steps
   };
+}
+
+function buildRecoveryReportSection(recovery?: SessionCloseRecoveryState): string {
+  if (!recovery?.failure) {
+    return "";
+  }
+  const remaining = recovery.pushedBranch
+    ? "inspect or update the pushed branch, then create or reuse the PR explicitly"
+    : recovery.createdCommit
+      ? "inspect the local commit and push or amend it before retrying"
+      : "fix the failing condition and rerun before commit/push";
+  return [
+    "",
+    "",
+    "## Recovery Report",
+    "",
+    `- failed action: ${recovery.failedAction ?? "unknown"}`,
+    `- branch: ${recovery.branch ?? "unknown"}`,
+    `- created commit: ${recovery.createdCommit ? "yes" : "no"}`,
+    `- pushed branch: ${recovery.pushedBranch ? "yes" : "no"}`,
+    `- remaining action: ${remaining}`,
+    `- failure: ${recovery.failure}`
+  ].join("\n");
 }

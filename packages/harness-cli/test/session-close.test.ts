@@ -118,6 +118,11 @@ test("session close report is ready with required closure evidence", () => {
   assert.match(report.markdown, /next start: Next session starts from report suffix backlog/);
   assert.match(report.markdown, /## Post-close Verification/);
   assert.match(report.markdown, /retrospective artifact: docs\/12\..*RET-009_2026-07-13_HCP_/);
+  assert.match(report.markdown, /## Policy And Scope Summary/);
+  assert.match(report.markdown, /appliedPolicies/);
+  assert.match(report.markdown, /scopeDecision/);
+  assert.equal(report.json.scopeDecision.decision, "allowed");
+  assert.equal(report.json.appliedPolicies[0].id, "REF-008");
   assert.match(report.markdown, /## Issue Management Comment/);
   assert.match(report.markdown, /decision: close verified issue candidate/);
 });
@@ -376,6 +381,174 @@ test("session close execution blocks without verified issue candidates", () => {
 
   assert.equal(result.status, "blocked");
   assert.match(result.markdown, /no verified issue close candidate/);
+});
+
+test("session close execution blocks on protected branches before writes", () => {
+  const calls: string[] = [];
+  const result = executeSessionClose({
+    completedTasks: ["task promote"],
+    sessionName: "Harness HCP session close",
+    issueUpdate: "Issue #73 updated",
+    remainingWork: "No open PR",
+    retrospective: "RET draft ready",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [73],
+    execution: {
+      enabled: true,
+      paths: ["docs/12.retrospective/RET-001.md"],
+      commitMessage: "docs: add session close retrospective",
+      prTitle: "[073]_(001)_HCP_session_close_retrospective",
+      relatedIssueNumber: 73,
+      baseBranch: "dev",
+      mergePr: true,
+      promote: true,
+      targetBranches: ["stg", "main"]
+    }
+  }, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "branch --show-current") {
+        return "dev";
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /protected branch dev/);
+  assert.doesNotMatch(calls.join("\n"), /git add --/);
+  assert.doesNotMatch(calls.join("\n"), /gh pr create/);
+});
+
+test("session close execution blocks identical PR head and base before writes", () => {
+  const calls: string[] = [];
+  const result = executeSessionClose({
+    completedTasks: ["task promote"],
+    sessionName: "Harness HCP session close",
+    issueUpdate: "Issue #73 updated",
+    remainingWork: "No open PR",
+    retrospective: "RET draft ready",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [73],
+    execution: {
+      enabled: true,
+      paths: ["docs/12.retrospective/RET-001.md"],
+      commitMessage: "docs: add session close retrospective",
+      prTitle: "[073]_(001)_HCP_session_close_retrospective",
+      relatedIssueNumber: 73,
+      baseBranch: "session_codex/010-session-close",
+      mergePr: true,
+      promote: true,
+      targetBranches: ["stg", "main"]
+    }
+  }, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "branch --show-current") {
+        return "session_codex/010-session-close";
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /PR head and base are identical/);
+  assert.doesNotMatch(calls.join("\n"), /git add --/);
+});
+
+test("session close execution blocks when post-retrospective diff check fails", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-diff-check-"));
+  let diffChecks = 0;
+  const result = executeSessionClose({
+    completedTasks: ["task promote"],
+    sessionNumber: "010",
+    sessionName: "Harness HCP session close",
+    issueUpdate: "Issue #73 updated",
+    remainingWork: "No open PR",
+    retrospective: "RET draft ready",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [73],
+    execution: {
+      enabled: true,
+      paths: [],
+      commitMessage: "docs: add session close retrospective",
+      prTitle: "[073]_(001)_HCP_session_close_retrospective",
+      relatedIssueNumber: 73,
+      baseBranch: "dev",
+      mergePr: true,
+      promote: true,
+      targetBranches: ["stg", "main"]
+    }
+  }, repo, {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") {
+        return "session_codex/010-session-close";
+      }
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") {
+        return repo;
+      }
+      if (command === "git" && args.join(" ") === "diff --check") {
+        diffChecks += 1;
+        if (diffChecks === 2) {
+          throw new Error("trailing whitespace");
+        }
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /post-retrospective git diff --check failed/);
+  assert.equal(diffChecks, 2);
+});
+
+test("session close execution prints recovery report when PR creation fails after push", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-pr-failure-"));
+  const result = executeSessionClose({
+    completedTasks: ["task promote"],
+    sessionNumber: "010",
+    sessionName: "Harness HCP session close",
+    issueUpdate: "Issue #73 updated",
+    remainingWork: "No open PR",
+    retrospective: "RET draft ready",
+    handoff: "Next session starts from generated RET",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [73],
+    execution: {
+      enabled: true,
+      paths: [],
+      commitMessage: "docs: add session close retrospective",
+      prTitle: "[073]_(001)_HCP_session_close_retrospective",
+      relatedIssueNumber: 73,
+      baseBranch: "dev",
+      mergePr: true,
+      promote: true,
+      targetBranches: ["stg", "main"]
+    }
+  }, repo, {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") {
+        return "session_codex/010-session-close";
+      }
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") {
+        return repo;
+      }
+      if (command === "gh" && args[0] === "pr" && args[1] === "create") {
+        throw new Error("GraphQL: head and base must be different");
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /## Recovery Report/);
+  assert.match(result.markdown, /failed action: create_pr/);
+  assert.match(result.markdown, /created commit: yes/);
+  assert.match(result.markdown, /pushed branch: yes/);
+  assert.match(result.markdown, /GraphQL: head and base must be different/);
 });
 
 test("session close execution creates retrospective draft before decision-required issue close", () => {
@@ -680,8 +853,8 @@ test("session close execution updates compliant issue titles", () => {
   });
 
   assert.equal(result.status, "blocked");
-  assert.equal(calls[0], "gh issue edit 73 --title [073]_[HCP]_session_close_guard");
-  assert.equal(calls[1], "gh issue comment 73 --body Issue #73 updated");
+  assert.match(calls.join("\n"), /gh issue edit 73 --title \[073\]_\[HCP\]_session_close_guard/);
+  assert.match(calls.join("\n"), /gh issue comment 73 --body Issue #73 updated/);
 });
 
 test("session close execution closes verified issues only", () => {
@@ -707,5 +880,8 @@ test("session close execution closes verified issues only", () => {
   });
 
   assert.equal(result.status, "executed");
+  if (calls[0] === "git branch --show-current") {
+    calls.shift();
+  }
   assert.equal(calls[0], "gh issue close 64 --comment Closed by verified #세션정리.");
 });
