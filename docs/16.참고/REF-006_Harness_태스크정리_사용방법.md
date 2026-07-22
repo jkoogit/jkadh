@@ -40,6 +40,8 @@
 
 `#태스크정리`는 구현이 끝난 뒤 변경 요약, 완료 내용, 검증 결과, 제외 범위, 남은 작업을 확인하고, 태스크 단위 변경사항을 PR 생성/머지까지 반영하는 태그다.
 
+실행이 완료되면 완료 요약, 검증 결과, 제외 범위, 남은 작업을 HCP task의 `closeEvidence`에 구조화해 저장한다. 이 evidence는 이후 `#태스크승급` 정책 판단에서 재사용하며, 자유 형식 `--verification` 문자열만으로 승급 근거를 대신하지 않는다.
+
 ## 2. 사용할 때
 
 다음 상황에서 사용한다.
@@ -235,6 +237,7 @@ base: dev
 | `change summary` | 현재 Git 변경 요약이다. |
 | `completion summary` | 완료 내용이다. |
 | `verification result` | 검증 결과다. |
+| `closeEvidence` | 태스크정리 성공 시 HCP task에 저장되는 구조화된 완료·검증 근거다. |
 | `remaining work` | 남은 작업이다. |
 | `PR readiness` | 커밋, push, PR 생성, `dev` PR 머지 준비가 되었는지 여부다. |
 | `execution plan` | 실행 시 수행할 내부 단계다. 기본값은 `commit_changes -> push_branch -> create_pr -> merge_pr_to_dev`다. |
@@ -268,5 +271,6 @@ base: dev
 | 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | 단독 `#태스크정리`를 PR 생성과 dev merge 포함 승인 주문으로 정규화하고 실행 전 승인 문구 기준 추가 |
 | 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크정리.PR머지` 호환성 suffix와 merge 차단 재승인 피드백 기준 추가 |
 | 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | 태스크정리 완료 후에는 승급 권장까지만 제안하고 다음 업무 리뷰는 태스크승급 완료 후 수행하는 기준 추가 |
+| 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Update | 태스크정리 검증 결과를 HCP `closeEvidence`로 구조화해 승급 판단에 재사용하는 기준 추가 |
 
 [목차로 이동](#목차)

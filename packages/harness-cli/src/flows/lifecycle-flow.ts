@@ -4,7 +4,7 @@ import { createReportDocument } from "../reports/create-report.ts";
 
 export interface LifecycleFlow {
   tag: HarnessTag;
-  command: "session start" | "task start" | "task close" | "task promote" | "session close";
+  command: "session start" | "task start" | "task process" | "task close" | "task promote" | "session close";
   responsibility: string;
   checks: string[];
   writeActions: HarnessAction[];
@@ -32,6 +32,13 @@ const flows: Record<HarnessTag, LifecycleFlow> = {
     responsibility: "Check task identifier, scope, branch, and verification inputs before implementation.",
     checks: ["issue or work order", "scope", "out of scope", "completion criteria", "verification method"],
     writeActions: ["create_issue", "create_branch"]
+  },
+  task_process: {
+    tag: "task_process",
+    command: "task process",
+    responsibility: "Verify the active HCP task and registered branch before implementation changes.",
+    checks: ["active session", "single active task", "registered branch match", "task scope"],
+    writeActions: []
   },
   task_close: {
     tag: "task_close",

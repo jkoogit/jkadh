@@ -2,6 +2,7 @@
 
 import { checkGate, type HarnessAction, type HarnessTag } from "./gates/check-gate.ts";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createBacklogDocument } from "./docs/backlog-document.ts";
@@ -19,12 +20,14 @@ import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "./flows/session-close.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
+import { buildTaskProcessReport, parseTaskProcessArgs, type TaskProcessInput } from "./flows/task-process.ts";
 import { buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs, readTaskPromoteBranchStatus } from "./flows/task-promote.ts";
 import { buildTaskStartReport, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
 import { checkProjectAccess, loadProjectProfile } from "./projects/project-profile.ts";
 import { createReportDocument } from "./reports/create-report.ts";
 import { checkRequiredEnv } from "./security/env-check.ts";
 import { buildSessionPlan } from "./session/session-plan.ts";
+import { approveLoopCondition, beginLoopWorkItemImplementation, buildRollbackReport, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, type LoopWorkItemDefinition } from "./state/loop-state.ts";
 import {
   addHcpBacklog,
   addHcpTask,
@@ -34,6 +37,8 @@ import {
   deleteHcpBacklog,
   deleteHcpTask,
   readSessionById,
+  linkHcpTaskLoop,
+  recordHcpTaskProcessEvidence,
   resolveActiveSession,
   transitionHcpSessionStatus,
   updateHcpTaskBranch,
@@ -58,6 +63,7 @@ function printUsage(): void {
   jkadh session start [project_id]
   jkadh session close [--execute --verified-issue <number> --reuse-open-pr]
   jkadh task start [--execute --issue-title <title> --branch <branch>]
+  jkadh task process [--execute --session-id <id> --task-id <id>]
   jkadh task close [--execute --path <path> --message <message> --pr-title <title> --base dev]
   jkadh task promote [--target-commit <sha> --target-branches stg,main --execute]
   jkadh tag <#세션시작|#태스크시작|#태스크정리|#태스크승급|#세션정리>[.보고|.PR재사용]
@@ -209,6 +215,28 @@ async function run(argv: string[]): Promise<number> {
     return 0;
   }
 
+  if (scope === "task" && command === "process") {
+    const repoRoot = resolveGitRoot(process.cwd());
+    const input = enrichTaskProcessInput(parseTaskProcessArgs(argv.slice(2)), repoRoot);
+    const report = buildTaskProcessReport(input);
+    console.log(report.markdown);
+    if (input.execution?.enabled) {
+      if (input.sessionId && input.taskId) {
+        recordHcpTaskProcessEvidence(repoRoot, {
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          status: report.json.remediation.status,
+          iterations: report.json.remediation.iterations,
+          nextAction: report.json.remediation.nextAction
+        });
+      }
+      console.log(report.status === "ready"
+        ? "# Task process execution\n\n- [pass] implementation boundary: ready; task remains active\n"
+        : "# Task process execution\n\n- [blocked] implementation boundary: run #태스크시작 or select the active task before modifying files\n");
+    }
+    return report.status === "ready" ? 0 : 2;
+  }
+
   if (scope === "task" && command === "close") {
     const taskCloseArgs = argv.slice(2);
     const blockIndex = taskCloseArgs.indexOf("--block");
@@ -219,6 +247,12 @@ async function run(argv: string[]): Promise<number> {
       const taskSelection = applyTaskIdFromHcpState(input, "active", "#태스크정리");
       if (taskSelection.status === "blocked") {
         console.log(taskSelection.markdown);
+        return 2;
+      }
+      const loopBlockers = listLoopRuns(resolveGitRoot(process.cwd()), input.taskId, true).filter((loop) => !["completed", "deleted"].includes(loop.status));
+      const deletedRequired = listLoopRuns(resolveGitRoot(process.cwd()), input.taskId, true).filter((loop) => loop.status === "deleted" && loop.required && !loop.deletion?.replacementLoopId && !loop.deletion?.exclusionApproved);
+      if (loopBlockers.length || deletedRequired.length) {
+        console.log(`# Task close blocked by loops\n\n${[...loopBlockers, ...deletedRequired].map((loop) => `- ${loop.loopId}: ${loop.status}`).join("\n")}\n`);
         return 2;
       }
     }
@@ -239,7 +273,15 @@ async function run(argv: string[]): Promise<number> {
             expectedStatus: "active",
             status: "closed",
             pullRequestNumber: parsePullRequestNumberFromText(execution.markdown),
-            pullRequestUrl: parsePullRequestUrlFromText(execution.markdown)
+            pullRequestUrl: parsePullRequestUrlFromText(execution.markdown),
+            closeEvidence: {
+              source: "task_close",
+              outcome: "passed",
+              completionSummary: input.completionSummary ?? "",
+              verificationResult: input.verificationResult ?? "",
+              outOfScope: input.outOfScope ?? "",
+              remainingWork: input.remainingWork ?? ""
+            }
           });
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), `closed task: ${task.taskId}`));
         } catch (error) {
@@ -263,6 +305,9 @@ async function run(argv: string[]): Promise<number> {
     }
     const reportInput = {
       ...input,
+      ...(input.execution?.enabled
+        ? readTaskPromoteHcpPolicyInput(process.cwd(), input.sessionId, input.taskId, input.targetCommit)
+        : {}),
       branchStatus: readTaskPromoteBranchStatus(input, process.cwd())
     };
     const report = buildTaskPromoteReport(reportInput);
@@ -302,6 +347,10 @@ async function run(argv: string[]): Promise<number> {
     }
     console.log(formatHarnessTagExecutionOrder(buildHarnessTagExecutionOrder(parsed)));
     return run(tagCommandArgs(parsed.tag, parsed.mode, inlineTagArgs(command, argv.slice(2))));
+  }
+
+  if (scope === "loop" && command) {
+    return runLoopCommand(command, argv.slice(2));
   }
 
   if (scope === "hcp") {
@@ -860,6 +909,10 @@ export function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report" | "me
   if (tag === "task_start") {
     return mode === "execute" ? ["task", "start", "--execute", ...args] : ["task", "start", ...args];
   }
+
+  if (tag === "task_process") {
+    return mode === "execute" ? ["task", "process", "--execute", ...args] : ["task", "process", ...args];
+  }
   if (tag === "task_close") {
     return mode === "execute" || mode === "merge" ? ["task", "close", "--execute", ...args] : ["task", "close", ...args];
   }
@@ -883,6 +936,13 @@ function inlineTagArgs(command: string, args: string[]): string[] {
 function tagAliasCommandArgs(command: string, args: string[]): string[] | undefined {
   const token = command.trim().split(/\s+/)[0]?.replace(/\.보고$/, "").replace(/\{[\s\S]*$/, "");
   const blockArgs = command.includes("{") ? parseGenericHcpBlockArgs(command) : args;
+  const loopCommands: Record<string, string> = {
+    "#루프분석": "analyze", "#루프실행": "execute", "#루프상태": "status", "#루프보완": "remediate",
+    "#루프중단": "stop", "#루프삭제": "delete", "#루프롤백": "rollback", "#루프복원": "restore", "#루프승인": "approve"
+  };
+  if (loopCommands[token]) {
+    return ["loop", loopCommands[token], ...(command.includes(".보고") ? ["--report"] : []), ...blockArgs];
+  }
   if (token === "#세션현행화") {
     return ["hcp", "session", "update", ...blockArgs];
   }
@@ -942,6 +1002,38 @@ function normalizeHcpAliasBlockKey(key: string): string | undefined {
     "hcpbacklogid": "--hcp-backlog-id",
     "제목": "--title",
     "title": "--title",
+    "루프id": "--loop-id",
+    "loopid": "--loop-id",
+    "선택토큰": "--selection-token",
+    "selectiontoken": "--selection-token",
+    "대체루프id": "--replacement-loop-id",
+    "replacementloopid": "--replacement-loop-id",
+    "제외승인": "--exclusion-approved",
+    "exclusionapproved": "--exclusion-approved",
+    "목표": "--objective",
+    "objective": "--objective",
+    "완료조건": "--completion",
+    "completion": "--completion",
+    "정상결과": "--expected-results",
+    "expectedresults": "--expected-results",
+    "오류케이스": "--error-cases",
+    "errorcases": "--error-cases",
+    "허용경로": "--allowed-paths",
+    "allowedpaths": "--allowed-paths",
+    "검증방법": "--verification",
+    "verification": "--verification",
+    "레지스트리경로": "--registry-path",
+    "registrypath": "--registry-path",
+    "구현요약": "--implementation-summary",
+    "implementationsummary": "--implementation-summary",
+    "작업항목": "--work-item-id",
+    "workitemid": "--work-item-id",
+    "롤백승인경로": "--approved-paths",
+    "approvedpaths": "--approved-paths",
+    "승인조건": "--condition-value",
+    "conditionvalue": "--condition-value",
+    "승인자": "--approved-by",
+    "approvedby": "--approved-by",
     "문서": "--document",
     "document": "--document",
     "유형": "--type",
@@ -980,6 +1072,134 @@ function normalizeHcpAliasBlockKey(key: string): string | undefined {
     "reason": "--reason"
   };
   return aliases[normalized];
+}
+
+function enrichTaskProcessInput(input: TaskProcessInput, repoRoot: string): TaskProcessInput {
+  const currentBranch = runExternal("git", ["branch", "--show-current"], repoRoot);
+  try {
+    const session = input.sessionId
+      ? readSessionById(repoRoot, input.sessionId)
+      : resolveActiveSession(repoRoot, undefined, input.agentId);
+    const activeTasks = session.tasks.filter((task) => task.status === "active");
+    const task = input.taskId
+      ? activeTasks.find((candidate) => candidate.taskId === input.taskId)
+      : activeTasks.length === 1 ? activeTasks[0] : undefined;
+    return {
+      ...input,
+      sessionId: session.sessionId,
+      taskId: task?.taskId,
+      scope: input.scope ?? task?.taskName,
+      currentBranch,
+      registeredBranch: task?.branchName,
+      activeSession: session.status === "active",
+      activeTask: Boolean(task) && activeTasks.length === 1
+    };
+  } catch {
+    return {
+      ...input,
+      currentBranch,
+      activeSession: false,
+      activeTask: false
+    };
+  }
+}
+
+function runLoopCommand(command: string, args: string[]): number {
+  const repoRoot = resolveGitRoot(process.cwd());
+  recoverStaleLoopLeases(repoRoot);
+  const options = parseKeyValueArgs(args);
+  const reportOnly = args.includes("--report");
+  if (command === "status") {
+    console.log(formatLoopList(listLoopRuns(repoRoot, options["task-id"], options.all === "true")));
+    return 0;
+  }
+  if (command === "analyze" && !options["loop-id"]) {
+    const registry = options["registry-path"] ? JSON.parse(readFileSync(join(repoRoot, options["registry-path"]), "utf8")) as { title: string; objective: string; workItems: LoopWorkItemDefinition[] } : undefined;
+    const required = registry ? ["session-id", "task-id"] : ["session-id", "task-id", "title", "objective", "completion", "expected-results", "error-cases", "allowed-paths", "verification"];
+    const missing = required.filter((key) => !options[key]);
+    if (missing.length || reportOnly) {
+      console.log(["# Loop analysis report", "", `- status: ${missing.length ? "blocked" : "ready"}`, `- missing: ${missing.join(", ") || "none"}`, "- write actions: loop creation blocked in report mode"].join("\n"));
+      return missing.length ? 2 : 0;
+    }
+    const workItem: LoopWorkItemDefinition = {
+      id: "work_001", title: options.title, dependencies: [],
+      completionConditions: splitList(options.completion), expectedResults: splitList(options["expected-results"]),
+      errorCases: splitList(options["error-cases"]), allowedPaths: splitList(options["allowed-paths"]),
+      verificationCommands: splitList(options.verification)
+    };
+    const loop = createLoopRun(repoRoot, {
+      sessionId: options["session-id"], taskId: options["task-id"], title: registry?.title ?? options.title,
+      objective: registry?.objective ?? options.objective, workItems: registry?.workItems ?? [workItem]
+    });
+    linkHcpTaskLoop(repoRoot, loop.sessionId, loop.taskId, loop.loopId);
+    console.log(`# Loop analysis\n\n- loop id: ${loop.loopId}\n- status: ${loop.status}\n- analysis version: ${loop.analysisVersion}\n`);
+    return 0;
+  }
+  const candidates = selectLoopCandidates(repoRoot, command, options["task-id"]);
+  const selectionToken = createHash("sha256").update(candidates.map((loop) => `${loop.loopId}:${loop.status}:${loop.updatedAt}`).join("|")).digest("hex").slice(0, 16);
+  if (options["selection-token"] && options["selection-token"] !== selectionToken) {
+    console.log(`${formatLoopList(candidates)}\n\n- selection token expired: ${selectionToken}`); return 2;
+  }
+  const selected = options["loop-id"] ? candidates.find((loop) => loop.loopId === options["loop-id"]) : candidates.length === 1 ? candidates[0] : undefined;
+  if (!selected) {
+    console.log(formatLoopList(candidates));
+    console.log(`\n- selection required: specify loopId and selectionToken=${selectionToken}`);
+    return 2;
+  }
+  if (reportOnly) {
+    const rollback = command === "rollback" ? buildRollbackReport(repoRoot, selected.loopId) : undefined;
+    const detail = rollback?.detail ?? `${command} would target ${selected.loopId}`;
+    console.log(`# Loop ${command} report\n\n- loop id: ${selected.loopId}\n- status: ${selected.status}\n- detail: ${detail}${rollback ? `\n- removable files: ${rollback.removableFiles.join(", ") || "none"}\n- blocked files: ${rollback.blockedFiles.join(", ") || "none"}` : ""}\n`);
+    return 0;
+  }
+  if (command === "execute") {
+    if (selected.status !== "running") { createLoopCheckpoint(repoRoot, selected.loopId, "before"); transitionLoop(repoRoot, selected.loopId, "running"); }
+    const current = listLoopRuns(repoRoot).find((loop) => loop.loopId === selected.loopId)!;
+    if (current.workItems.some((item) => item.status === "ready")) beginLoopWorkItemImplementation(repoRoot, selected.loopId);
+    else if (current.workItems.some((item) => item.status === "implementing")) {
+      if (!options["implementation-summary"]) throw new Error("--implementation-summary is required to complete implementation handoff");
+      const completed = completeLoopWorkItemImplementation(repoRoot, selected.loopId, options["implementation-summary"]);
+      if (completed.status === "running") runNextLoopWorkItem(repoRoot, selected.loopId);
+    } else if (current.workItems.some((item) => item.status === "implementation_complete")) runNextLoopWorkItem(repoRoot, selected.loopId);
+  } else if (command === "remediate" || command === "analyze") {
+    reviseLoopAnalysis(repoRoot, selected.loopId, {
+      ...(options.completion ? { completionConditions: splitList(options.completion) } : {}),
+      ...(options["expected-results"] ? { expectedResults: splitList(options["expected-results"]) } : {}),
+      ...(options["error-cases"] ? { errorCases: splitList(options["error-cases"]) } : {}),
+      ...(options["allowed-paths"] ? { allowedPaths: splitList(options["allowed-paths"]) } : {}),
+      ...(options.verification ? { verificationCommands: splitList(options.verification) } : {})
+    }, new Date(), options["work-item-id"]);
+  } else if (command === "stop") transitionLoop(repoRoot, selected.loopId, "paused");
+  else if (command === "approve") {
+    if (!options["work-item-id"] || !options["condition-value"] || !options["approved-by"]) throw new Error("--work-item-id, --condition-value and --approved-by are required");
+    approveLoopCondition(repoRoot, selected.loopId, options["work-item-id"], options["condition-value"], options["approved-by"]);
+  }
+  else if (command === "delete") softDeleteLoop(repoRoot, selected.loopId, options.reason ?? "deleted by loop command", new Date(), options["replacement-loop-id"], options["exclusion-approved"] === "true");
+  else if (command === "restore") restoreLoop(repoRoot, selected.loopId);
+  else if (command === "rollback") {
+    const plan = buildRollbackReport(repoRoot, selected.loopId);
+    if (!options["approved-paths"]) {
+      console.log(`# Loop rollback\n\n- ${plan.detail}\n- removable files: ${plan.removableFiles.join(", ") || "none"}\n- blocked files: ${plan.blockedFiles.join(", ") || "none"}\n- file changes: not applied; --approved-paths is required\n`);
+      return plan.ready ? 2 : 3;
+    }
+    executeApprovedRollback(repoRoot, selected.loopId, splitList(options["approved-paths"]));
+  }
+  const updated = listLoopRuns(repoRoot, undefined, true).find((loop) => loop.loopId === selected.loopId);
+  console.log(`# Loop ${command}\n\n- loop id: ${selected.loopId}\n- status: ${updated?.status ?? "unknown"}\n`);
+  return 0;
+}
+
+function splitList(value: string): string[] { return value.split(/[;,]/).map((item) => item.trim()).filter(Boolean); }
+function formatLoopList(loops: Array<{ loopId: string; title: string; status: string; analysisVersion: number; workItems: Array<{ status: string }> }>): string {
+  return ["# Loop list", "", `- candidates: ${loops.length}`, ...loops.map((loop, index) => `${index + 1}. ${loop.loopId} | ${loop.status} | analysis v${loop.analysisVersion} | ${loop.workItems.filter((item) => item.status === "completed").length}/${loop.workItems.length} | ${loop.title}`)].join("\n");
+}
+
+function resolveGitRoot(cwd: string): string {
+  try {
+    return runExternal("git", ["rev-parse", "--show-toplevel"], cwd);
+  } catch {
+    return cwd;
+  }
 }
 
 function applyTaskIdFromHcpState(
@@ -1037,6 +1257,45 @@ function buildTaskIdOrder(
     "}",
     "```"
   ].join("\n") + "\n";
+}
+
+function readTaskPromoteHcpPolicyInput(
+  repoRoot: string,
+  sessionId?: string,
+  taskId?: string,
+  targetCommit?: string
+): {
+  enforceHcpPolicies: true;
+  closeEvidence?: ReturnType<typeof readSessionById>["tasks"][number]["closeEvidence"];
+  pullRequestLinked: boolean;
+  devContainsTarget: boolean;
+} {
+  try {
+    if (!sessionId || !taskId) {
+      return { enforceHcpPolicies: true, pullRequestLinked: false, devContainsTarget: false };
+    }
+    const task = readSessionById(repoRoot, sessionId).tasks.find((candidate) => candidate.taskId === taskId);
+    let devContainsTarget = false;
+    if (targetCommit) {
+      try {
+        execFileSync("git", ["merge-base", "--is-ancestor", targetCommit, "origin/dev"], {
+          cwd: repoRoot,
+          stdio: "ignore"
+        });
+        devContainsTarget = true;
+      } catch {
+        devContainsTarget = false;
+      }
+    }
+    return {
+      enforceHcpPolicies: true,
+      closeEvidence: task?.closeEvidence,
+      pullRequestLinked: Boolean(task?.pullRequest?.number || task?.pullRequest?.url),
+      devContainsTarget
+    };
+  } catch {
+    return { enforceHcpPolicies: true, pullRequestLinked: false, devContainsTarget: false };
+  }
 }
 
 function runExternal(command: string, args: string[], cwd: string): string {

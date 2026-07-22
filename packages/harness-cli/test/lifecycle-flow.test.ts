@@ -3,9 +3,10 @@ import { test } from "node:test";
 
 import { buildLifecycleReport, getLifecycleFlow } from "../src/flows/lifecycle-flow.ts";
 
-test("lifecycle registry defines five Harness tag flows", () => {
+test("lifecycle registry defines six Harness tag flows", () => {
   assert.equal(getLifecycleFlow("session_start").command, "session start");
   assert.equal(getLifecycleFlow("task_start").command, "task start");
+  assert.equal(getLifecycleFlow("task_process").command, "task process");
   assert.equal(getLifecycleFlow("task_close").command, "task close");
   assert.equal(getLifecycleFlow("task_promote").command, "task promote");
   assert.equal(getLifecycleFlow("session_close").command, "session close");

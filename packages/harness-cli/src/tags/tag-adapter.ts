@@ -20,6 +20,7 @@ export interface HarnessTagExecutionOrder {
 const tagMap = new Map<string, HarnessTag>([
   ["#세션시작", "session_start"],
   ["#태스크시작", "task_start"],
+  ["#태스크처리", "task_process"],
   ["#태스크정리", "task_close"],
   ["#태스크승급", "task_promote"],
   ["#세션정리", "session_close"]
@@ -60,6 +61,15 @@ export function parseHarnessTagCommand(input: string): ParsedHarnessTag | undefi
 }
 
 export function buildHarnessTagExecutionOrder(parsed: ParsedHarnessTag): HarnessTagExecutionOrder {
+  if (parsed.tag === "task_process") {
+    return {
+      tag: parsed.tag,
+      mode: parsed.mode,
+      intent: parsed.mode === "report" ? "task_process_report" : "task_process_execute",
+      steps: ["check_active_session", "check_active_task", "check_registered_branch", "check_task_scope"]
+    };
+  }
+
   if (parsed.tag === "task_close" && (parsed.mode === "execute" || parsed.mode === "merge")) {
     const explicitMerge = parsed.mode === "merge";
     return {
