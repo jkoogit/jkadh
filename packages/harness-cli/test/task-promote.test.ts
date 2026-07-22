@@ -67,6 +67,54 @@ test("task promote report is blocked when a target branch cannot fast-forward", 
   assert.match(report.markdown, /main: blocked/);
 });
 
+test("task promote HCP policy blocks missing close evidence and dev merge", () => {
+  const report = buildTaskPromoteReport({
+    taskId: "codex_task_018_001",
+    targetCommit: "abc123",
+    targetBranches: ["stg", "main"],
+    verificationResult: "npm test passed",
+    enforceHcpPolicies: true,
+    pullRequestLinked: true,
+    devContainsTarget: false,
+    branchStatus: [
+      { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true },
+      { branch: "main", currentCommit: "base", targetCommit: "abc123", fastForward: true }
+    ]
+  });
+
+  assert.equal(report.status, "blocked");
+  assert.match(report.markdown, /task-promote.close-evidence=blocked/);
+  assert.match(report.markdown, /task-promote.dev-merge=blocked/);
+});
+
+test("task promote HCP policy accepts stored evidence PR and dev merge", () => {
+  const report = buildTaskPromoteReport({
+    taskId: "codex_task_018_001",
+    targetCommit: "abc123",
+    targetBranches: ["stg", "main"],
+    verificationResult: "npm test passed",
+    enforceHcpPolicies: true,
+    closeEvidence: {
+      source: "task_close",
+      outcome: "passed",
+      completionSummary: "implemented",
+      verificationResult: "npm test passed",
+      outOfScope: "none",
+      remainingWork: "none",
+      recordedAt: "2026-07-21T00:00:00.000Z"
+    },
+    pullRequestLinked: true,
+    devContainsTarget: true,
+    branchStatus: [
+      { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true },
+      { branch: "main", currentCommit: "base", targetCommit: "abc123", fastForward: true }
+    ]
+  });
+
+  assert.equal(report.status, "ready");
+  assert.equal(report.json.policyResults.every((result) => result.status === "pass"), true);
+});
+
 test("task promote execution blocks when report is not ready", () => {
   const result = executeTaskPromote({
     targetBranches: ["dev"],

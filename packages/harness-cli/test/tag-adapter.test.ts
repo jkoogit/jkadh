@@ -11,6 +11,7 @@ import {
 test("tag adapter maps Korean session and task tags to flow ids", () => {
   assert.equal(parseHarnessTag("#세션시작"), "session_start");
   assert.equal(parseHarnessTag("#태스크시작"), "task_start");
+  assert.equal(parseHarnessTag("#태스크처리"), "task_process");
   assert.equal(parseHarnessTag("#태스크정리"), "task_close");
   assert.equal(parseHarnessTag("#태스크승급"), "task_promote");
   assert.equal(parseHarnessTag("#세션정리"), "session_close");
@@ -25,6 +26,15 @@ test("tag adapter marks default tags as execute mode", () => {
     tag: "task_close",
     mode: "execute"
   });
+});
+
+test("tag adapter defines task process prerequisite checks", () => {
+  const parsed = parseHarnessTagCommand("#태스크처리");
+  assert.ok(parsed);
+  const order = buildHarnessTagExecutionOrder(parsed);
+
+  assert.equal(order.intent, "task_process_execute");
+  assert.deepEqual(order.steps, ["check_active_session", "check_active_task", "check_registered_branch", "check_task_scope"]);
 });
 
 test("tag adapter expands standalone task close into dev merge approval order", () => {

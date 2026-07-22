@@ -14,6 +14,8 @@ import {
   createHcpSession,
   deleteHcpBacklog,
   deleteHcpTask,
+  recordHcpTaskProcessEvidence,
+  linkHcpTaskLoop,
   transitionHcpSessionStatus,
   updateHcpTaskBranch,
   updateHcpTaskPullRequest,
@@ -121,6 +123,69 @@ test("hcp task update records PR tracking id and status", () => {
   assert.equal(closed.status, "closed");
   assert.equal(closed.pullRequest?.hcpPrId, "codex_pr_010_001");
   assert.equal(closed.pullRequest?.number, 74);
+});
+
+test("hcp task close stores structured verification evidence", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-evidence-"));
+  const session = createHcpSession(repo, {
+    sessionNumber: "10",
+    sessionName: "010_evidence",
+    now: new Date("2026-07-13T01:00:00.000Z")
+  });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "evidence task" });
+
+  const closed = updateHcpTask(repo, {
+    sessionId: session.sessionId,
+    taskId: task.taskId,
+    status: "closed",
+    closeEvidence: {
+      source: "task_close",
+      outcome: "passed",
+      completionSummary: "implemented",
+      verificationResult: "npm test passed",
+      outOfScope: "promotion",
+      remainingWork: "none"
+    },
+    now: new Date("2026-07-13T01:10:00.000Z")
+  });
+
+  assert.equal(closed.closeEvidence?.outcome, "passed");
+  assert.equal(closed.closeEvidence?.recordedAt, "2026-07-13T01:10:00.000Z");
+  assert.equal(buildHcpStateSummary(repo, session.sessionId).selectedSession?.changeLog.at(-1)?.action, "task.record_close_evidence");
+});
+
+test("hcp task process appends remediation loop evidence without closing the task", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-process-evidence-"));
+  const session = createHcpSession(repo, { sessionNumber: "10", sessionName: "010_process_evidence" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "process task" });
+
+  const updated = recordHcpTaskProcessEvidence(repo, {
+    sessionId: session.sessionId,
+    taskId: task.taskId,
+    status: "completed",
+    iterations: [{
+      iteration: 1,
+      evaluatedPolicies: [],
+      blockedPolicies: [],
+      appliedFixes: [],
+      fingerprint: "[]",
+      result: "passed"
+    }],
+    now: new Date("2026-07-21T01:00:00.000Z")
+  });
+
+  assert.equal(updated.status, "active");
+  assert.equal(updated.processEvidence?.[0].status, "completed");
+  assert.equal(updated.processEvidence?.[0].recordedAt, "2026-07-21T01:00:00.000Z");
+});
+
+test("hcp task records linked loop ids without duplicates", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-loop-link-"));
+  const session = createHcpSession(repo, { sessionNumber: "10", sessionName: "010_loop_link" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "loop task" });
+  linkHcpTaskLoop(repo, session.sessionId, task.taskId, "codex_loop_010_001");
+  const linked = linkHcpTaskLoop(repo, session.sessionId, task.taskId, "codex_loop_010_001");
+  assert.deepEqual(linked.loopIds, ["codex_loop_010_001"]);
 });
 
 test("hcp session creation blocks duplicate active agent and session name", () => {

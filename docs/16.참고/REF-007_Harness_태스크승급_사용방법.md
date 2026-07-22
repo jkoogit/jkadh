@@ -35,6 +35,8 @@
 
 `#태스크승급`은 PR을 생성하거나 머지하는 단계가 아니다. 이미 `dev`에 머지된 PR 또는 지정 커밋을 기준으로 `stg`, `main` 대상 브랜치가 fast-forward 가능한지 확인하고, 실행모드에서 대상 브랜치를 갱신한다.
 
+HCP 실행모드는 단계별 policy registry의 공통 `PolicyResult`를 사용한다. 승급하려는 태스크가 `closed`이고, 성공한 `closeEvidence`와 연결 PR이 있으며, `origin/dev`가 대상 커밋을 포함할 때만 승급을 허용한다. CLI에 전달한 `--verification` 문자열은 보조 설명이며 이 근거들을 대체하지 않는다.
+
 ## 2. 사용할 때
 
 다음 상황에서 사용한다.
@@ -101,6 +103,7 @@ Issue 종료는 `#세션정리`에서만 가능하다. PR 생성과 머지는 `#
 |---|---|
 | 승급 완료 | 다음 작업 리뷰를 수행하고 다음 태스크 시작 또는 `#세션정리` 프롬프트를 추천 |
 | fast-forward 불가 | 충돌 원인을 확인하고 승급 중단 |
+| HCP evidence, PR 또는 dev merge 불일치 | 정책 결과의 blocked 사유를 확인하고 승급 중단 |
 | Issue 종료 필요 | `#세션정리`에서만 검증 후 처리 |
 
 승급 완료 보고의 다음 작업 리뷰에는 다음 항목을 포함한다.
@@ -119,5 +122,6 @@ Issue 종료는 `#세션정리`에서만 가능하다. PR 생성과 머지는 `#
 |---|---|---|---|---|---|---|---|
 | 2026-07-13 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Create | Harness `#태스크승급` 사용방법 문서 작성 |
 | 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | 승급 완료 후 다음 작업 리뷰와 추천 다음턴 프롬프트 기준 추가 |
+| 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Update | 단계별 policy registry와 HCP close evidence, PR, dev merge 대조 기준 추가 |
 
 [목차로 이동](#목차)

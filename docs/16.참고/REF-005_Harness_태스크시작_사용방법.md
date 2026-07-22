@@ -46,7 +46,9 @@ Issue는 채팅 세션과 같은 생명주기를 가진다. 첫 태스크 시작
 
 `#태스크시작`은 작업 실행 전에 작업 식별자, 범위, 제외 범위, 완료 조건, 검증 방법을 명확히 하는 태그다. 현재 Harness CLI의 `task start` report는 준비 상태를 확인하고 추천 브랜치명을 제안한다. 실행모드에서는 Issue가 없으면 GitHub Issue를 생성하고, 해당 Issue 번호 기준 작업 브랜치를 생성/checkout한다.
 
-`#태스크시작`은 구현 완료를 뜻하지 않는다. 실행모드가 완료되면 작업은 준비단계 완료 상태이며, 실제 구현은 별도 구현 지시 또는 후속 `#태스크처리` 후보 절차에서 수행한다. 구현 결과 커밋, PR 생성, 병합, 승급은 `#태스크정리`와 `#태스크승급`에서만 다룬다.
+`#태스크시작`은 구현 완료를 뜻하지 않는다. 실행모드가 완료되면 작업은 준비단계 완료 상태이며, 실제 구현은 `#태스크처리`에서 활성 HCP task와 등록 브랜치를 검증한 뒤 수행한다. 구현 결과 커밋, PR 생성, 병합, 승급은 `#태스크정리`와 `#태스크승급`에서만 다룬다.
+
+`#태스크처리` 중 정책 보완이 반복되면 Harness는 기본 최대 3회의 remediation loop를 사용한다. 동일한 차단 결과가 반복되거나 사용자 판단 또는 범위 변경이 필요하면 즉시 중단하며, 회차 결과는 HCP `processEvidence`에 기록한다.
 
 ## 2. 사용할 때
 
@@ -296,7 +298,7 @@ node --experimental-strip-types src/cli.ts task start `
 | 상황 | 다음 처리 |
 |---|---|
 | `ready`이고 작업 범위가 맞음 | `#태스크시작` 실행으로 Issue/브랜치/HCP 태스크를 준비 |
-| 준비단계 완료 | 구현 작업 진행. 현재는 명시 구현 지시로 처리하며, `#태스크처리`는 후속 도입 후보 |
+| 준비단계 완료 | `#태스크처리`로 활성 세션·task·등록 브랜치·작업 범위를 확인한 뒤 구현 진행 |
 | `blocked`이고 주문서 초안이 적절함 | 초안에 동의한다고 답하고 진행 |
 | `blocked`이고 누락 항목이 있음 | 누락 항목을 채우거나 주문서 초안을 수정해 다시 `#태스크시작` |
 | 범위가 너무 큼 | `작업범위`, `제외범위`, `완료조건`을 좁혀 재주문 |
@@ -313,5 +315,6 @@ node --experimental-strip-types src/cli.ts task start `
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | 빈 `#태스크시작` 입력 시 주문서 초안 출력 흐름 반영 |
 | 2026-07-13 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크시작` 실행모드와 브랜치 생성/checkout 기준 추가 |
 | 2026-07-14 | [#84](https://github.com/jkoogit/jkadh/issues/84) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크시작` 결과의 작업 단계, 구현 대기 상태, 자연어 실행 게이트 기준 보강 |
+| 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크처리` 선행조건 검증과 구현 단계 실행 경계 반영 |
 
 [목차로 이동](#목차)

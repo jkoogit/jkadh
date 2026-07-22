@@ -1,7 +1,9 @@
 import { execFileSync } from "node:child_process";
 
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
+import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
+import type { HcpTaskCloseEvidence } from "../state/session-state.ts";
 
 export interface TaskPromoteInput {
   agentId?: string;
@@ -12,6 +14,10 @@ export interface TaskPromoteInput {
   verificationResult?: string;
   execution?: TaskPromoteExecutionOptions;
   branchStatus?: TaskPromoteBranchStatus[];
+  closeEvidence?: HcpTaskCloseEvidence;
+  pullRequestLinked?: boolean;
+  devContainsTarget?: boolean;
+  enforceHcpPolicies?: boolean;
 }
 
 export interface TaskPromoteExecutionOptions {
@@ -33,6 +39,7 @@ export interface TaskPromoteReport {
     input: TaskPromoteInput;
     missing: string[];
     promotionReady: boolean;
+    policyResults: PolicyResult[];
   };
   blockedActions: string[];
 }
@@ -123,9 +130,16 @@ export function parseTaskPromoteArgs(args: string[]): TaskPromoteInput {
 export function buildTaskPromoteReport(input: TaskPromoteInput): TaskPromoteReport {
   const missing = missingFields(input);
   const branchStatus = input.branchStatus ?? [];
+  const policyResults = input.enforceHcpPolicies ? evaluateStagePolicies("task_promote", {
+    closedTask: Boolean(input.taskId),
+    closeEvidencePassed: input.closeEvidence?.outcome === "passed",
+    pullRequestLinked: input.pullRequestLinked === true,
+    devContainsTarget: input.devContainsTarget === true
+  }) : [];
   const promotionReady = missing.length === 0
     && branchStatus.length === input.targetBranches.length
-    && branchStatus.every((status) => status.fastForward);
+    && branchStatus.every((status) => status.fastForward)
+    && policiesPassed(policyResults);
   const reportStatus = promotionReady ? "ready" : "blocked";
 
   const report = createReportDocument({
@@ -152,6 +166,11 @@ export function buildTaskPromoteReport(input: TaskPromoteInput): TaskPromoteRepo
         status: promotionReady ? "pass" : "blocked",
         detail: summarizeBranchStatus(input, branchStatus)
       },
+      ...(input.enforceHcpPolicies ? [{
+        name: "HCP policy evidence",
+        status: policiesPassed(policyResults) ? "pass" as const : "blocked" as const,
+        detail: policyResults.map((result) => `${result.policyId}=${result.status}`).join("; ")
+      }] : []),
       {
         name: "write actions",
         status: "blocked",
@@ -167,7 +186,8 @@ export function buildTaskPromoteReport(input: TaskPromoteInput): TaskPromoteRepo
     json: {
       input,
       missing,
-      promotionReady
+      promotionReady,
+      policyResults
     },
     blockedActions
   };

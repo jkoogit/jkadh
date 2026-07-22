@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { PolicyRemediationIteration, PolicyRemediationLoopStatus } from "../gates/policy-remediation-loop.ts";
 
 export type HcpSessionStatus = "active" | "closing" | "complete" | "archived" | "blocked" | "failed";
 export type HcpTaskStatus = "active" | "closed" | "promoted" | "blocked" | "failed";
@@ -38,6 +39,23 @@ export interface HcpChangeLogEntry {
   detail: string;
 }
 
+export interface HcpTaskCloseEvidence {
+  source: "task_close";
+  outcome: "passed" | "failed";
+  completionSummary: string;
+  verificationResult: string;
+  outOfScope: string;
+  remainingWork: string;
+  recordedAt: string;
+}
+
+export interface HcpTaskProcessEvidence {
+  status: PolicyRemediationLoopStatus;
+  iterations: PolicyRemediationIteration[];
+  nextAction?: string;
+  recordedAt: string;
+}
+
 export interface HcpTaskState {
   taskId: string;
   taskName: string;
@@ -45,6 +63,9 @@ export interface HcpTaskState {
   issueNumber?: number;
   branchName?: string;
   pullRequest?: HcpLinkedPullRequest;
+  closeEvidence?: HcpTaskCloseEvidence;
+  processEvidence?: HcpTaskProcessEvidence[];
+  loopIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -129,6 +150,24 @@ export interface UpdateHcpTaskInput {
   status: HcpTaskStatus;
   pullRequestNumber?: number;
   pullRequestUrl?: string;
+  closeEvidence?: Omit<HcpTaskCloseEvidence, "recordedAt">;
+  now?: Date;
+}
+
+export function linkHcpTaskLoop(repoRoot: string, sessionId: string, taskId: string, loopId: string, now = new Date()): HcpTaskState {
+  const session = readSessionById(repoRoot, sessionId);
+  const task = resolveTask(session, taskId, "active");
+  if (!task.loopIds?.includes(loopId)) task.loopIds = [...(task.loopIds ?? []), loopId];
+  const timestamp = now.toISOString(); task.updatedAt = timestamp; session.updatedAt = timestamp;
+  appendChange(session, timestamp, "task.link_loop", taskId, loopId); writeSessionState(repoRoot, session); return task;
+}
+
+export interface RecordHcpTaskProcessEvidenceInput {
+  sessionId: string;
+  taskId: string;
+  status: PolicyRemediationLoopStatus;
+  iterations: PolicyRemediationIteration[];
+  nextAction?: string;
   now?: Date;
 }
 
@@ -411,7 +450,34 @@ export function updateHcpTask(repoRoot: string, input: UpdateHcpTaskInput): HcpT
       title: task.pullRequest?.title
     };
   }
+  if (input.closeEvidence) {
+    task.closeEvidence = {
+      ...input.closeEvidence,
+      recordedAt: timestamp
+    };
+    appendChange(session, timestamp, "task.record_close_evidence", task.taskId, `${task.closeEvidence.outcome}: ${task.closeEvidence.verificationResult}`);
+  }
   session.updatedAt = timestamp;
+  writeSessionState(repoRoot, session);
+  return task;
+}
+
+export function recordHcpTaskProcessEvidence(repoRoot: string, input: RecordHcpTaskProcessEvidenceInput): HcpTaskState {
+  const session = readSessionById(repoRoot, input.sessionId);
+  const task = resolveTask(session, input.taskId, "active");
+  const timestamp = (input.now ?? new Date()).toISOString();
+  task.processEvidence = [
+    ...(task.processEvidence ?? []),
+    {
+      status: input.status,
+      iterations: input.iterations,
+      nextAction: input.nextAction,
+      recordedAt: timestamp
+    }
+  ];
+  task.updatedAt = timestamp;
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "task.record_process_evidence", task.taskId, `${input.status}: iterations=${input.iterations.length}`);
   writeSessionState(repoRoot, session);
   return task;
 }

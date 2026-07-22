@@ -366,7 +366,17 @@ PR merge to dev (`merge_pr_to_dev`)
 
 ## 12. 논스톱 진행 기준
 
-`#태스크시작`, `#태스크정리`, `#태스크승급`, `#세션정리`는 서로 다른 통제 지점을 가진다. 기본 운영에서는 각 단계 사이에 확인 지점을 둔다.
+`#태스크시작`, `#태스크처리`, `#태스크정리`, `#태스크승급`, `#세션정리`는 서로 다른 통제 지점을 가진다. 기본 운영에서는 각 단계 사이에 확인 지점을 둔다.
+
+`#태스크처리`는 활성 HCP 세션이 있고, active task가 정확히 1개이며, 현재 브랜치가 task에 등록된 브랜치와 일치하고, 작업 범위를 확인할 수 있을 때만 허용한다. 조건이 없거나 모호하면 파일 수정 전에 차단하고 `#태스크시작` 또는 `sessionId`·`taskId` 선택 주문을 제안한다. 이 단계에서는 커밋, push, PR 생성·병합, 공유 브랜치 승급, Issue 종료를 수행하지 않는다.
+
+정책 보완이 반복되는 경우에는 제한된 remediation loop를 사용한다. 각 회차는 정책 평가, 차단 정책 수집, 현재 단계에서 허용된 보완, 검증, 재평가 순서로 진행한다. 모든 정책 통과, 사용자 판단 필요, 범위 이탈, 동일 결과 반복, 최대 회차 도달 중 하나가 발생하면 루프를 종료한다. 회차별 정책 결과, 적용한 보완, fingerprint, 다음 조치는 HCP task의 `processEvidence`에 누적하며 task 상태는 `active`로 유지한다.
+
+태스크 내부의 다단계 반복 작업은 별도 Loop Run으로 관리한다. `#루프분석`은 완료조건, 정상결과, 오류케이스, 허용경로, 검증방법이 모두 정의된 분석 버전을 만들고, `#루프실행`은 분석이 준비된 루프만 실행한다. 후보가 여러 건이면 목록을 표시하고 `loopId` 선택 전에는 상태를 바꾸지 않는다. 한 태스크에서 running Loop Run은 한 건만 허용한다.
+
+Loop Run은 로컬 작업과 HCP evidence만 관리한다. commit, push, PR 생성·갱신, merge, 공유 브랜치 승급은 태스크 lifecycle에만 허용한다. `#루프삭제`는 evidence를 보존하는 soft delete이며 파일 변경을 자동 복구하지 않는다. `#루프롤백`은 checkpoint와 현재 브랜치를 대조한 계획을 우선 출력하고, 경로 단위 승인 없이 파일을 복구하지 않는다. 삭제된 루프는 `#루프복원` 시 paused 상태로 돌아간다.
+
+구조화된 `manual_approval` 완료조건은 분석 문서의 `approved` 값만으로 통과할 수 없다. `#루프승인`으로 WorkItem, 조건 값, 승인자를 별도 evidence로 기록한 뒤 검증을 재개한다. `path_scope_clean`은 실제 변경 파일과 허용경로를 비교하고, 계산된 정상결과가 분석 시 등록한 결과 유형에 포함되지 않으면 루프를 차단한다. Git 변경 파일은 NUL 구분 형식으로 읽어 공백·한글·rename 경로를 보존한다.
 
 사용자가 네 단계의 연속 실행과 중간 확인 생략을 명시한 경우에만 논스톱으로 진행할 수 있다. 이때도 다음 조건이 발생하면 즉시 중단하고 확인한다.
 
@@ -422,6 +432,9 @@ Git 상태 변경 게이트를 확인하기 전에 [STA-002 AI 시작가이드](
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 같은 Issue 안의 여러 PR 연결 기준과 세션 마무리 시 세션명 현행화 확인 항목 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 정리 PR의 Issue 자동 종료 키워드 사용 제한 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크시작 없이 진행된 작업의 태스크정리 사후 보정 항목 추가 |
+| 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Revise | `#태스크처리`를 정식 통제 단계로 추가하고 활성 task·등록 브랜치·범위 선행조건과 쓰기 경계 정의 |
+| 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Revise | 정책 보완 remediation loop의 수렴·사용자판단·무진전·최대회차 종료조건과 HCP processEvidence 기록 기준 추가 |
+| 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 종속 Loop Run 분석·선택·실행·보완·중단·soft delete·복원·rollback checkpoint 권한 경계 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 절차 기반 처리와 Issue 번호 기반 채번 충돌 방지 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 사용자 주문과 표준 절차 충돌 시 확인 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 논스톱 진행 조건과 중단 기준 추가 |

@@ -1,6 +1,7 @@
 export type HarnessMode =
   | "read-check-report"
   | "task-start-execute"
+  | "task-process-execute"
   | "task-close-execute"
   | "task-promote-execute"
   | "session-close-execute";
@@ -24,6 +25,7 @@ export type HarnessAction =
 export type HarnessTag =
   | "session_start"
   | "task_start"
+  | "task_process"
   | "task_close"
   | "task_promote"
   | "session_close";
@@ -65,6 +67,18 @@ export function checkGate(input: GateCheckInput): GateCheckResult {
     return {
       allowed: true,
       reason: "action is inside task close execution scope",
+      nextState: "execute",
+      tag: input.tag,
+      requestedAction: input.requestedAction
+    };
+  }
+
+  if (input.mode === "task-process-execute"
+    && input.tag === "task_process"
+    && taskProcessExecuteActions.has(input.requestedAction)) {
+    return {
+      allowed: true,
+      reason: "action is inside task process execution scope",
       nextState: "execute",
       tag: input.tag,
       requestedAction: input.requestedAction
@@ -133,6 +147,12 @@ const taskCloseExecuteActions = new Set<HarnessAction>([
   "create_pr",
   "merge_pr",
   "merge_pr_to_dev"
+]);
+
+const taskProcessExecuteActions = new Set<HarnessAction>([
+  "read_status",
+  "check_gate",
+  "create_report"
 ]);
 
 const taskPromoteExecuteActions = new Set<HarnessAction>([

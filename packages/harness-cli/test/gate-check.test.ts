@@ -72,6 +72,23 @@ test("gate check allows issue and branch creation in task start execution mode",
   assert.equal(blocked.allowed, false);
 });
 
+test("gate check keeps task process inside read check report actions", () => {
+  const allowed = checkGate({
+    mode: "task-process-execute",
+    requestedAction: "check_gate",
+    tag: "task_process"
+  });
+  const blocked = checkGate({
+    mode: "task-process-execute",
+    requestedAction: "commit_changes",
+    tag: "task_process"
+  });
+
+  assert.equal(allowed.allowed, true);
+  assert.equal(allowed.reason, "action is inside task process execution scope");
+  assert.equal(blocked.allowed, false);
+});
+
 test("gate check allows only branch promotion in task promote execution mode", () => {
   const allowed = checkGate({
     mode: "task-promote-execute",
