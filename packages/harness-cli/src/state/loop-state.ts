@@ -47,13 +47,14 @@ export interface HcpLoopRun {
   workItems: Array<LoopWorkItemDefinition & { status: LoopWorkItemStatus; attempt: number; resultType?: LoopResultType; lastError?: string; verificationEvidence?: VerificationEvidence[]; implementationEvidence?: WorkItemImplementationEvidence }>;
   checkpoints: LoopCheckpoint[];
   approvals?: Array<{ workItemId: string; conditionValue: string; approvedBy: string; approvedAt: string }>;
+  recoveryHistory?: Array<{ reason: string; preservedWorkItemId: string; resetWorkItemIds: string[]; fileChangesPreserved: boolean; preservedPaths?: string[]; checkpointRebased?: boolean; recoveredAt: string }>;
   deletion?: { deletedAt: string; reason: string; previousStatus: LoopStatus; replacementLoopId?: string; exclusionApproved?: boolean };
   lease?: { owner: string; acquiredAt: string; expiresAt: string };
   createdAt: string;
   updatedAt: string;
 }
 export interface VerificationEvidence { command: string; exitCode: number; status: "passed" | "failed"; startedAt: string; completedAt: string; commit: string; diffDigest: string; }
-export interface WorkItemImplementationEvidence { summary: string; changedFiles: string[]; checkpointBefore: LoopCheckpoint; checkpointAfter: LoopCheckpoint; completedAt: string; }
+export interface WorkItemImplementationEvidence { summary: string; changedFiles: string[]; scopeViolationPaths?: string[]; checkpointBefore: LoopCheckpoint; checkpointAfter: LoopCheckpoint; completedAt: string; }
 export interface RollbackPlan { ready: boolean; detail: string; removableFiles: string[]; blockedFiles: string[]; checkpoint?: LoopCheckpoint; }
 
 const activeStatuses = new Set<LoopStatus>(["draft", "analysis_ready", "running", "paused", "blocked", "failed"]);
@@ -192,9 +193,54 @@ export function runNextLoopWorkItem(repoRoot: string, loopId: string, now = new 
 
 export function beginLoopWorkItemImplementation(repoRoot: string, loopId: string, now = new Date()): HcpLoopRun {
   const loop = readLoop(repoRoot, loopId, true); if (loop.status !== "running") throw new Error("Loop must be running");
+  const active = loop.workItems.filter((candidate) => ["implementing", "implementation_complete", "verifying"].includes(candidate.status));
+  if (active.length) throw new Error(`Active work item already exists: ${active.map((item) => item.id).join(", ")}`);
   const item = loop.workItems.find((candidate) => candidate.status === "ready"); if (!item) throw new Error("Ready work item not found");
   item.status = "implementing"; item.attempt += 1;
   item.implementationEvidence = { summary: "", changedFiles: [], checkpointBefore: createCheckpointValue(repoRoot, loop, "before", now), checkpointAfter: createCheckpointValue(repoRoot, loop, "after_implementation", now), completedAt: "" };
+  loop.updatedAt = now.toISOString(); writeLoop(repoRoot, loop); return loop;
+}
+
+export function recoverConcurrentLoopWorkItems(repoRoot: string, loopId: string, preservedWorkItemId: string, resetWorkItemIds: string[], reason: string, now = new Date()): HcpLoopRun {
+  const loop = readLoop(repoRoot, loopId, true);
+  if (loop.status !== "paused") throw new Error("Loop must be paused before recovery");
+  const preserved = loop.workItems.find((item) => item.id === preservedWorkItemId);
+  if (!preserved || !["implementing", "implementation_complete", "verifying"].includes(preserved.status)) throw new Error("Preserved work item is not active");
+  if (!resetWorkItemIds.length) throw new Error("Recovery reset work items are required");
+  for (const id of resetWorkItemIds) {
+    if (id === preservedWorkItemId) throw new Error("Preserved work item cannot be reset");
+    const item = loop.workItems.find((candidate) => candidate.id === id);
+    if (!item || !["implementing", "implementation_complete", "verifying"].includes(item.status)) throw new Error(`Reset work item is not active: ${id}`);
+    item.status = item.dependencies.every((dependency) => loop.workItems.find((candidate) => candidate.id === dependency)?.status === "completed") ? "ready" : "pending";
+    item.attempt = Math.max(0, item.attempt - 1); delete item.implementationEvidence; item.verificationEvidence = []; delete item.lastError; delete item.resultType;
+  }
+  loop.recoveryHistory = [...(loop.recoveryHistory ?? []), { reason, preservedWorkItemId, resetWorkItemIds, fileChangesPreserved: true, recoveredAt: now.toISOString() }];
+  loop.updatedAt = now.toISOString(); writeLoop(repoRoot, loop); return loop;
+}
+
+export function recoverBlockedLoopWorkItemCheckpoint(repoRoot: string, loopId: string, workItemId: string, preservedPaths: string[], reason: string, now = new Date()): HcpLoopRun {
+  const loop = readLoop(repoRoot, loopId, true);
+  if (!['blocked', 'paused'].includes(loop.status)) throw new Error('Loop must be blocked or paused before checkpoint recovery');
+  const item = loop.workItems.find((candidate) => candidate.id === workItemId);
+  if (!item?.implementationEvidence || item.status !== 'blocked') throw new Error('Blocked work item implementation evidence is required');
+  if (!preservedPaths.length) throw new Error('Preserved paths are required');
+  const normalizedPaths = [...new Set(preservedPaths.map((path) => path.replace(/\\/g, '/')))];
+  const invalidPaths = normalizedPaths.filter((path) => !item.allowedPaths.some((pattern) => pathAllowed(path, pattern)));
+  if (invalidPaths.length) throw new Error(`Preserved paths are outside work item scope: ${invalidPaths.join(', ')}`);
+
+  const originalBefore = item.implementationEvidence.checkpointBefore;
+  const rebased = createCheckpointValue(repoRoot, loop, 'before', now);
+  for (const path of normalizedPaths) {
+    const originalDigest = originalBefore.fileDigests[path];
+    if (originalDigest) rebased.fileDigests[path] = originalDigest;
+    else delete rebased.fileDigests[path];
+  }
+  item.status = 'implementing';
+  item.implementationEvidence = { summary: '', changedFiles: [], checkpointBefore: rebased, checkpointAfter: rebased, completedAt: '' };
+  item.verificationEvidence = [];
+  delete item.lastError; delete item.resultType;
+  loop.status = 'paused'; delete loop.lease;
+  loop.recoveryHistory = [...(loop.recoveryHistory ?? []), { reason, preservedWorkItemId: workItemId, resetWorkItemIds: [], fileChangesPreserved: true, preservedPaths: normalizedPaths, checkpointRebased: true, recoveredAt: now.toISOString() }];
   loop.updatedAt = now.toISOString(); writeLoop(repoRoot, loop); return loop;
 }
 
@@ -206,8 +252,8 @@ export function completeLoopWorkItemImplementation(repoRoot: string, loopId: str
   const changedFiles = [...new Set([...Object.keys(beforeDigests), ...Object.keys(after.fileDigests)])]
     .filter((path) => beforeDigests[path] !== after.fileDigests[path] && !path.replace(/\\/g, "/").startsWith(".hcp/"));
   const outside = changedFiles.filter((path) => !item.allowedPaths.some((pattern) => pathAllowed(path, pattern)));
-  item.implementationEvidence = { ...item.implementationEvidence, summary, changedFiles, checkpointAfter: after, completedAt: now.toISOString() };
-  if (outside.length) { item.status = "blocked"; loop.status = "blocked"; }
+  item.implementationEvidence = { ...item.implementationEvidence, summary, changedFiles, ...(outside.length ? { scopeViolationPaths: outside } : {}), checkpointAfter: after, completedAt: now.toISOString() };
+  if (outside.length) { item.lastError = `path_scope_violation:${outside.join(',')}`; item.status = "blocked"; loop.status = "blocked"; delete loop.lease; }
   else item.status = "implementation_complete";
   writeLoop(repoRoot, loop); return loop;
 }
@@ -333,12 +379,18 @@ function createCheckpointValue(repoRoot: string, loop: HcpLoopRun, phase: LoopCh
   return { checkpointId: `${loop.loopId}_inline_${now.getTime()}`, phase, branchName: git(repoRoot, ["branch", "--show-current"]), baseCommit: git(repoRoot, ["rev-parse", "HEAD"]), changedFiles, fileDigests: createFileDigests(repoRoot, changedFiles), diffDigest: createHash("sha256").update(git(repoRoot, ["diff", "--binary", "HEAD"])).digest("hex"), createdAt: now.toISOString() };
 }
 function pathAllowed(path: string, pattern: string): boolean { const normalized = pattern.replace(/\\/g, "/"); return normalized.endsWith("/**") ? path.replace(/\\/g, "/").startsWith(normalized.slice(0, -3)) : path.replace(/\\/g, "/") === normalized || path.replace(/\\/g, "/").startsWith(`${normalized}/`); }
-function runVerification(repoRoot: string, command: string): void {
+export function buildVerificationInvocation(repoRoot: string, command: string, platform = process.platform, comspec = process.env.ComSpec ?? "cmd.exe"): { executable: string; args: string[]; cwd: string; shell: boolean } {
   const packageRoot = existsSync(join(repoRoot, "packages", "harness-cli", "package.json")) ? join(repoRoot, "packages", "harness-cli") : repoRoot;
-  if (command === "npm test") { execFileSync("npm", ["test"], { cwd: packageRoot, stdio: "ignore" }); return; }
-  if (command === "npm run check") { execFileSync("npm", ["run", "check"], { cwd: packageRoot, stdio: "ignore" }); return; }
-  if (command === "git diff --check") { execFileSync("git", ["diff", "--check"], { cwd: repoRoot, stdio: "ignore" }); return; }
+  const npmArgs = command === "npm test" ? ["test"] : command === "npm run check" ? ["run", "check"] : undefined;
+  if (npmArgs) return platform === "win32"
+    ? { executable: comspec, args: ["/d", "/s", "/c", `npm.cmd ${npmArgs.join(" ")}`], cwd: packageRoot, shell: false }
+    : { executable: "npm", args: npmArgs, cwd: packageRoot, shell: false };
+  if (command === "git diff --check") return { executable: "git", args: ["diff", "--check"], cwd: repoRoot, shell: false };
   throw new Error(`Verification command is not allowed: ${command}`);
+}
+function runVerification(repoRoot: string, command: string): void {
+  const invocation = buildVerificationInvocation(repoRoot, command);
+  execFileSync(invocation.executable, invocation.args, { cwd: invocation.cwd, stdio: "ignore", shell: invocation.shell });
 }
 
 function createFileDigests(repoRoot: string, paths: string[]): Record<string, string> {

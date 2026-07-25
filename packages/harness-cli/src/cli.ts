@@ -3,8 +3,8 @@
 import { checkGate, type HarnessAction, type HarnessTag } from "./gates/check-gate.ts";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { createBacklogDocument } from "./docs/backlog-document.ts";
 import { hasBacklogIndexEntry, parseBacklogIndex } from "./docs/backlog-index.ts";
 import { parseRetrospectiveDetail } from "./docs/retrospective-detail.ts";
@@ -27,7 +27,7 @@ import { checkProjectAccess, loadProjectProfile } from "./projects/project-profi
 import { createReportDocument } from "./reports/create-report.ts";
 import { checkRequiredEnv } from "./security/env-check.ts";
 import { buildSessionPlan } from "./session/session-plan.ts";
-import { approveLoopCondition, beginLoopWorkItemImplementation, buildRollbackReport, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, type LoopWorkItemDefinition } from "./state/loop-state.ts";
+import { approveLoopCondition, beginLoopWorkItemImplementation, buildRollbackReport, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, validateWorkItems, type LoopWorkItemDefinition } from "./state/loop-state.ts";
 import {
   addHcpBacklog,
   addHcpTask,
@@ -36,11 +36,13 @@ import {
   createHcpSession,
   deleteHcpBacklog,
   deleteHcpTask,
+  evaluateHcpTaskCloseReadiness,
   readSessionById,
   linkHcpTaskLoop,
   recordHcpTaskProcessEvidence,
   resolveActiveSession,
   transitionHcpSessionStatus,
+  transitionHcpTaskPhase,
   updateHcpTaskBranch,
   updateHcpTaskPullRequest,
   updateHcpBacklog,
@@ -229,6 +231,7 @@ async function run(argv: string[]): Promise<number> {
           iterations: report.json.remediation.iterations,
           nextAction: report.json.remediation.nextAction
         });
+        if (report.status === "ready") transitionHcpTaskPhase(repoRoot, input.sessionId, input.taskId, "implementing");
       }
       console.log(report.status === "ready"
         ? "# Task process execution\n\n- [pass] implementation boundary: ready; task remains active\n"
@@ -247,6 +250,13 @@ async function run(argv: string[]): Promise<number> {
       const taskSelection = applyTaskIdFromHcpState(input, "active", "#태스크정리");
       if (taskSelection.status === "blocked") {
         console.log(taskSelection.markdown);
+        return 2;
+      }
+      const selectedTask = readSessionById(resolveGitRoot(process.cwd()), input.sessionId!).tasks.find((task) => task.taskId === input.taskId);
+      if (!selectedTask) throw new Error(`HCP task not found: ${input.taskId}`);
+      const closeReadiness = evaluateHcpTaskCloseReadiness(selectedTask);
+      if (!closeReadiness.ready) {
+        console.log(`# Task close blocked by completion discovery\n\n${closeReadiness.reasons.map((reason) => `- ${reason}`).join("\n")}\n`);
         return 2;
       }
       const loopBlockers = listLoopRuns(resolveGitRoot(process.cwd()), input.taskId, true).filter((loop) => !["completed", "deleted"].includes(loop.status));
@@ -1114,22 +1124,24 @@ function runLoopCommand(command: string, args: string[]): number {
     return 0;
   }
   if (command === "analyze" && !options["loop-id"]) {
-    const registry = options["registry-path"] ? JSON.parse(readFileSync(join(repoRoot, options["registry-path"]), "utf8")) as { title: string; objective: string; workItems: LoopWorkItemDefinition[] } : undefined;
+    const registryResult = options["registry-path"] ? loadLoopRegistry(repoRoot, options["registry-path"]) : undefined;
+    const registry = registryResult?.registry;
     const required = registry ? ["session-id", "task-id"] : ["session-id", "task-id", "title", "objective", "completion", "expected-results", "error-cases", "allowed-paths", "verification"];
     const missing = required.filter((key) => !options[key]);
-    if (missing.length || reportOnly) {
-      console.log(["# Loop analysis report", "", `- status: ${missing.length ? "blocked" : "ready"}`, `- missing: ${missing.join(", ") || "none"}`, "- write actions: loop creation blocked in report mode"].join("\n"));
-      return missing.length ? 2 : 0;
+    const errors = registryResult?.errors ?? [];
+    if (missing.length || errors.length || reportOnly) {
+      console.log(["# Loop analysis report", "", `- status: ${missing.length || errors.length ? "blocked" : "ready"}`, `- missing: ${missing.join(", ") || "none"}`, `- registry errors: ${errors.join("; ") || "none"}`, "- write actions: loop creation blocked in report mode"].join("\n"));
+      return missing.length || errors.length ? 2 : 0;
     }
-    const workItem: LoopWorkItemDefinition = {
-      id: "work_001", title: options.title, dependencies: [],
-      completionConditions: splitList(options.completion), expectedResults: splitList(options["expected-results"]),
-      errorCases: splitList(options["error-cases"]), allowedPaths: splitList(options["allowed-paths"]),
-      verificationCommands: splitList(options.verification)
-    };
+    const targetErrors = validateLoopAnalysisTarget(repoRoot, options["session-id"], options["task-id"]);
+    if (targetErrors.length) {
+      console.log(["# Loop analysis report", "", "- status: blocked", "- missing: none", "- registry errors: none", `- target errors: ${targetErrors.join("; ")}`, "- write actions: loop creation blocked"].join("\n"));
+      return 2;
+    }
+    const workItems = registry?.workItems ?? [buildSingleLoopWorkItem(options)];
     const loop = createLoopRun(repoRoot, {
       sessionId: options["session-id"], taskId: options["task-id"], title: registry?.title ?? options.title,
-      objective: registry?.objective ?? options.objective, workItems: registry?.workItems ?? [workItem]
+      objective: registry?.objective ?? options.objective, workItems
     });
     linkHcpTaskLoop(repoRoot, loop.sessionId, loop.taskId, loop.loopId);
     console.log(`# Loop analysis\n\n- loop id: ${loop.loopId}\n- status: ${loop.status}\n- analysis version: ${loop.analysisVersion}\n`);
@@ -1155,12 +1167,12 @@ function runLoopCommand(command: string, args: string[]): number {
   if (command === "execute") {
     if (selected.status !== "running") { createLoopCheckpoint(repoRoot, selected.loopId, "before"); transitionLoop(repoRoot, selected.loopId, "running"); }
     const current = listLoopRuns(repoRoot).find((loop) => loop.loopId === selected.loopId)!;
-    if (current.workItems.some((item) => item.status === "ready")) beginLoopWorkItemImplementation(repoRoot, selected.loopId);
-    else if (current.workItems.some((item) => item.status === "implementing")) {
+    if (current.workItems.some((item) => item.status === "implementing")) {
       if (!options["implementation-summary"]) throw new Error("--implementation-summary is required to complete implementation handoff");
       const completed = completeLoopWorkItemImplementation(repoRoot, selected.loopId, options["implementation-summary"]);
       if (completed.status === "running") runNextLoopWorkItem(repoRoot, selected.loopId);
     } else if (current.workItems.some((item) => item.status === "implementation_complete")) runNextLoopWorkItem(repoRoot, selected.loopId);
+    else if (current.workItems.some((item) => item.status === "ready")) beginLoopWorkItemImplementation(repoRoot, selected.loopId);
   } else if (command === "remediate" || command === "analyze") {
     reviseLoopAnalysis(repoRoot, selected.loopId, {
       ...(options.completion ? { completionConditions: splitList(options.completion) } : {}),
@@ -1187,6 +1199,74 @@ function runLoopCommand(command: string, args: string[]): number {
   const updated = listLoopRuns(repoRoot, undefined, true).find((loop) => loop.loopId === selected.loopId);
   console.log(`# Loop ${command}\n\n- loop id: ${selected.loopId}\n- status: ${updated?.status ?? "unknown"}\n`);
   return 0;
+}
+
+function buildSingleLoopWorkItem(options: Record<string, string>): LoopWorkItemDefinition {
+  return {
+    id: "work_001", title: options.title, dependencies: [],
+    completionConditions: splitList(options.completion), expectedResults: splitList(options["expected-results"]),
+    errorCases: splitList(options["error-cases"]), allowedPaths: splitList(options["allowed-paths"]),
+    verificationCommands: splitList(options.verification)
+  };
+}
+
+function loadLoopRegistry(repoRoot: string, registryPath: string): { registry?: { title: string; objective: string; workItems: LoopWorkItemDefinition[] }; errors: string[] } {
+  const absolute = resolve(repoRoot, registryPath); const rootReal = realpathSync(repoRoot);
+  const rel = relative(rootReal, absolute);
+  if (rel.startsWith("..") || isAbsolute(rel)) return { errors: ["registry path must stay inside repository"] };
+  if (!existsSync(absolute)) return { errors: ["registry file not found"] };
+  let registryReal: string;
+  try { registryReal = realpathSync(absolute); } catch { return { errors: ["registry file cannot be resolved"] }; }
+  const realRel = relative(rootReal, registryReal);
+  if (realRel.startsWith("..") || isAbsolute(realRel)) return { errors: ["registry real path must stay inside repository"] };
+  if (!lstatSync(registryReal).isFile()) return { errors: ["registry path must reference a regular file"] };
+  let value: unknown;
+  try { value = JSON.parse(readFileSync(absolute, "utf8")); } catch { return { errors: ["registry JSON is invalid"] }; }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return { errors: ["registry root must be an object"] };
+  const candidate = value as { title?: unknown; objective?: unknown; workItems?: unknown };
+  const errors: string[] = [];
+  if (typeof candidate.title !== "string" || !candidate.title.trim()) errors.push("registry title missing");
+  if (typeof candidate.objective !== "string" || !candidate.objective.trim()) errors.push("registry objective missing");
+  if (!Array.isArray(candidate.workItems) || candidate.workItems.length === 0) errors.push("registry workItems missing");
+  if (errors.length) return { errors };
+  const shapeErrors = validateLoopRegistryWorkItemShapes(candidate.workItems as unknown[]);
+  if (shapeErrors.length) return { errors: shapeErrors };
+  const workItems = candidate.workItems as LoopWorkItemDefinition[];
+  errors.push(...validateWorkItems(workItems));
+  return errors.length ? { errors } : { registry: { title: candidate.title as string, objective: candidate.objective as string, workItems }, errors: [] };
+}
+
+function validateLoopRegistryWorkItemShapes(items: unknown[]): string[] {
+  const errors: string[] = [];
+  for (let index = 0; index < items.length; index += 1) {
+    const value = items[index]; const label = `workItems[${index}]`;
+    if (!value || typeof value !== "object" || Array.isArray(value)) { errors.push(`${label}: must be an object`); continue; }
+    const item = value as Record<string, unknown>;
+    if (typeof item.id !== "string" || !item.id.trim()) errors.push(`${label}: id missing`);
+    if (typeof item.title !== "string" || !item.title.trim()) errors.push(`${label}: title missing`);
+    for (const field of ["dependencies", "completionConditions", "expectedResults", "errorCases", "allowedPaths", "verificationCommands"]) {
+      if (!Array.isArray(item[field])) errors.push(`${label}: ${field} must be an array`);
+    }
+    for (const field of ["completionConditions", "expectedResults", "errorCases", "allowedPaths", "verificationCommands"]) {
+      if (Array.isArray(item[field]) && item[field].length === 0) errors.push(`${label}: ${field} must not be empty`);
+    }
+    if (Array.isArray(item.dependencies) && item.dependencies.some((entry) => typeof entry !== "string")) errors.push(`${label}: dependencies must contain strings`);
+    for (const field of ["expectedResults", "errorCases", "allowedPaths", "verificationCommands"]) {
+      if (Array.isArray(item[field]) && item[field].some((entry) => typeof entry !== "string")) errors.push(`${label}: ${field} must contain strings`);
+    }
+  }
+  return errors;
+}
+
+function validateLoopAnalysisTarget(repoRoot: string, sessionId: string, taskId: string): string[] {
+  try {
+    const session = readSessionById(repoRoot, sessionId);
+    if (session.status !== "active") return ["session must be active"];
+    const task = session.tasks.find((candidate) => candidate.taskId === taskId);
+    if (!task) return ["task does not belong to session"];
+    if (task.status !== "active") return ["task must be active"];
+    return [];
+  } catch { return ["session not found"]; }
 }
 
 function splitList(value: string): string[] { return value.split(/[;,]/).map((item) => item.trim()).filter(Boolean); }

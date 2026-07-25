@@ -378,6 +378,10 @@ Loop Run은 로컬 작업과 HCP evidence만 관리한다. commit, push, PR 생�
 
 구조화된 `manual_approval` 완료조건은 분석 문서의 `approved` 값만으로 통과할 수 없다. `#루프승인`으로 WorkItem, 조건 값, 승인자를 별도 evidence로 기록한 뒤 검증을 재개한다. `path_scope_clean`은 실제 변경 파일과 허용경로를 비교하고, 계산된 정상결과가 분석 시 등록한 결과 유형에 포함되지 않으면 루프를 차단한다. Git 변경 파일은 NUL 구분 형식으로 읽어 공백·한글·rename 경로를 보존한다.
 
+완료조건이 처음부터 확정되지 않은 태스크는 조건 탐구를 허용한다. 완료조건은 `draft`, `provisional`, `frozen`, `superseded` revision으로 관리하며, 현재 태스크 정리의 기준은 `frozen` revision이다. 구현 중 발견한 항목은 `required`, `follow_up`, `rejected` 중 하나로 처분한다. 미처리 시 오동작·거짓 성공·손실·권한 위반·frozen 조건 위반이 발생하는 항목만 `required`로 현재 범위에 포함하고, 일반화와 편의 개선은 후속 Backlog로 분리한다.
+
+태스크는 목적, 범위, 완료조건, 발견 처분, 정리·PR·승급 권한을 관리한다. Loop Run은 태스크에 선택적으로 연결되는 하위 실행 수단으로서 WorkItem 구현, 검증, checkpoint, 보완과 중단만 관리한다. 완료조건 동결 이후 범위를 다시 열 때에는 재개 사유, 영향 범위, 무효화 evidence와 재안정화 필요 여부를 기록한다. 안정화 구간에서는 신규 기능을 추가하지 않고 회귀 실패, 런타임 오류, 안전 결함과 문서 불일치만 현재 태스크에서 수정한다.
+
 사용자가 네 단계의 연속 실행과 중간 확인 생략을 명시한 경우에만 논스톱으로 진행할 수 있다. 이때도 다음 조건이 발생하면 즉시 중단하고 확인한다.
 
 - 작업 범위가 바뀌거나 새 판단 지점이 생긴 경우
@@ -435,6 +439,7 @@ Git 상태 변경 게이트를 확인하기 전에 [STA-002 AI 시작가이드](
 | 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Revise | `#태스크처리`를 정식 통제 단계로 추가하고 활성 task·등록 브랜치·범위 선행조건과 쓰기 경계 정의 |
 | 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Revise | 정책 보완 remediation loop의 수렴·사용자판단·무진전·최대회차 종료조건과 HCP processEvidence 기록 기준 추가 |
 | 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Revise | 태스크 종속 Loop Run 분석·선택·실행·보완·중단·soft delete·복원·rollback checkpoint 권한 경계 추가 |
+| 2026-07-23 | [#124](https://github.com/jkoogit/jkadh/issues/124) | Codex | GPT-5 | CTO | jk / Codex | Revise | 완료조건 revision, 발견 항목 disposition, 동결 후 범위 재개와 안정화 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 절차 기반 처리와 Issue 번호 기반 채번 충돌 방지 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 사용자 주문과 표준 절차 충돌 시 확인 기준 추가 |
 | 2026-07-06 | [#19](https://github.com/jkoogit/jkadh/issues/19) | Codex | GPT-5 | CTO | jk / Codex | Revise | 논스톱 진행 조건과 중단 기준 추가 |

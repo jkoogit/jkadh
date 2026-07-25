@@ -14,14 +14,57 @@ import {
   createHcpSession,
   deleteHcpBacklog,
   deleteHcpTask,
+  evaluateHcpTaskCloseReadiness,
+  getHcpTaskPhase,
+  recordHcpCriteriaRevision,
+  recordHcpTaskDiscovery,
   recordHcpTaskProcessEvidence,
   linkHcpTaskLoop,
   transitionHcpSessionStatus,
+  transitionHcpTaskPhase,
+  updateHcpTaskDiscovery,
   updateHcpTaskBranch,
   updateHcpTaskPullRequest,
   updateHcpSession,
   updateHcpTask
 } from "../src/state/session-state.ts";
+
+test("legacy task keeps implementing phase and close compatibility", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-legacy-task-"));
+  const session = createHcpSession(repo, { sessionNumber: "18", sessionName: "legacy" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "legacy task" });
+  assert.equal(getHcpTaskPhase(task), "implementing");
+  assert.equal(evaluateHcpTaskCloseReadiness(task).ready, true);
+});
+
+test("criteria revisions preserve history, invalidate close evidence and enforce phase gates", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-criteria-"));
+  const session = createHcpSession(repo, { sessionNumber: "18", sessionName: "criteria" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "criteria task" });
+  updateHcpTask(repo, { sessionId: session.sessionId, taskId: task.taskId, status: "active", closeEvidence: { source: "task_close", outcome: "passed", completionSummary: "old", verificationResult: "old", outOfScope: "none", remainingWork: "none" } });
+  const provisional = recordHcpCriteriaRevision(repo, { sessionId: session.sessionId, taskId: task.taskId, status: "provisional", criteria: ["tests pass"], reason: "implementation boundary" });
+  assert.equal(provisional.closeEvidence, undefined);
+  assert.match(provisional.criteriaRevisions?.[0].invalidatedEvidenceIds[0] ?? "", /^task-close:/);
+  transitionHcpTaskPhase(repo, session.sessionId, task.taskId, "stabilizing");
+  const frozen = recordHcpCriteriaRevision(repo, { sessionId: session.sessionId, taskId: task.taskId, status: "frozen", criteria: ["tests pass"], reason: "stabilized", phase: "stabilizing" });
+  assert.equal(frozen.criteriaRevisions?.[0].status, "superseded");
+  assert.equal(evaluateHcpTaskCloseReadiness(frozen).ready, true);
+  assert.equal(transitionHcpTaskPhase(repo, session.sessionId, task.taskId, "close_ready").phase, "close_ready");
+  assert.throws(() => recordHcpCriteriaRevision(repo, { sessionId: session.sessionId, taskId: task.taskId, status: "provisional", criteria: ["changed"], reason: "reopen" }), /explicit evidence or work item invalidation/);
+});
+
+test("required discovery blocks close until evidence-backed resolution", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-discovery-"));
+  const session = createHcpSession(repo, { sessionNumber: "18", sessionName: "discovery" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "discovery task" });
+  recordHcpCriteriaRevision(repo, { sessionId: session.sessionId, taskId: task.taskId, status: "frozen", criteria: ["safe"], reason: "baseline", phase: "stabilizing" });
+  const discovered = recordHcpTaskDiscovery(repo, { sessionId: session.sessionId, taskId: task.taskId, category: "runtime", severity: "high", disposition: "required", blocksCurrentTask: true, evidence: "verification warning", rationale: "unsafe runner" });
+  assert.equal(evaluateHcpTaskCloseReadiness(discovered).ready, false);
+  const discoveryId = discovered.discoveries?.[0].discoveryId ?? "";
+  const resolved = updateHcpTaskDiscovery(repo, { sessionId: session.sessionId, taskId: task.taskId, discoveryId, disposition: "required", blocksCurrentTask: false, evidence: "regression passed", rationale: "runner fixed" });
+  assert.equal(evaluateHcpTaskCloseReadiness(resolved).ready, true);
+  assert.throws(() => recordHcpTaskDiscovery(repo, { sessionId: session.sessionId, taskId: task.taskId, category: "idea", severity: "low", disposition: "follow_up", blocksCurrentTask: true, evidence: "idea", rationale: "later" }), /cannot block/);
+});
 
 test("hcp session state creates per-session files with agent scoped ids", () => {
   const repo = mkdtempSync(join(tmpdir(), "hcp-state-"));
