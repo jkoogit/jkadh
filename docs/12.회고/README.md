@@ -32,6 +32,7 @@
 | RET-015 | [2026-07-17 016_Backlog_경량_등록반영승급_절차정의](./RET-015_2026-07-17_016_Backlog_경량_등록반영승급_절차정의_회고.md) | Draft |
 | RET-016 | [2026-07-21 017_Harness_세션정리_안전성_토큰효율성_개선](./RET-016_2026-07-21_017_Harness_세션정리_안전성_토큰효율성_개선_회고.md) | Draft |
 | RET-017 | [2026-07-25 018_Harness_단계별_유효조건_policy_registry_HCP_evidence_연계](./RET-017_2026-07-25_018_Harness_단계별_유효조건_policy_registry_HCP_evidence_연계_회고.md) | Draft |
+| RET-018 | [2026-07-25 019_Harness_evidence기반_lifecycle_잔여항목_재평가](./RET-018_2026-07-25_019_Harness_evidence기반_lifecycle_잔여항목_재평가_회고.md) | Draft |
 
 ## 관련 문서
 
