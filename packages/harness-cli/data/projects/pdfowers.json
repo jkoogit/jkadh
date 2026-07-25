@@ -10,5 +10,7 @@
   "branch_strategy": "feature",
   "branch_alignment_policy": "promotion",
   "allowed_work_types": ["service", "integration"],
-  "harness_enabled": true
+  "harness_enabled": true,
+  "allowed_start_branches": ["main"],
+  "ignored_untracked_paths": [".codex-remote-attachments/"]
 }
