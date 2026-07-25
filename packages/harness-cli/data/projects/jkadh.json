@@ -9,5 +9,7 @@
   "branch_strategy": "feature",
   "branch_alignment_policy": "aligned",
   "allowed_work_types": ["platform"],
-  "harness_enabled": true
+  "harness_enabled": true,
+  "allowed_start_branches": ["main"],
+  "ignored_untracked_paths": [".hcp/"]
 }

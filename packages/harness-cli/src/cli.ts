@@ -100,7 +100,14 @@ async function run(argv: string[]): Promise<number> {
 
   if (scope === "project" && command === "preflight") {
     const projectId = firstArg ?? "jkadh";
-    const profile = await loadProjectProfile(projectId);
+    let profile;
+    try {
+      profile = await loadProjectProfile(projectId);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "ProjectProfile load failed";
+      console.log(`# Project target preflight\n\n- project: ${projectId}\n- status: blocked\n\n## Blockers\n\n- ${detail}\n`);
+      return 2;
+    }
     const access = checkProjectAccess(profile);
     if (access.status === "blocked") {
       console.log(`# Project target preflight\n\n- project: ${profile.project_id}\n- status: blocked\n- access: ${access.reason}\n`);

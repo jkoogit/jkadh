@@ -18,6 +18,8 @@ export interface ProjectProfile {
   branch_alignment_policy?: "aligned" | "promotion";
   allowed_work_types?: Array<"platform" | "service" | "integration">;
   harness_enabled?: boolean;
+  allowed_start_branches?: string[];
+  ignored_untracked_paths?: string[];
 }
 
 export interface ProjectAccessResult {
@@ -33,7 +35,9 @@ export async function loadProjectProfile(
   profilesDir = defaultProfilesDir
 ): Promise<ProjectProfile> {
   const content = await readFile(join(profilesDir, `${projectId}.json`), "utf8");
-  return JSON.parse(content) as ProjectProfile;
+  const profile = JSON.parse(content) as unknown;
+  validateProjectProfile(profile, projectId);
+  return profile;
 }
 
 export function checkProjectAccess(profile: ProjectProfile): ProjectAccessResult {
@@ -52,4 +56,28 @@ export function checkProjectAccess(profile: ProjectProfile): ProjectAccessResult
 
 export function resolveProjectLocalPath(profile: ProjectProfile, repositoryRoot: string): string {
   return resolve(repositoryRoot, profile.local_path);
+}
+
+function validateProjectProfile(value: unknown, projectId: string): asserts value is ProjectProfile {
+  if (!value || typeof value !== "object") {
+    throw new Error(`invalid ProjectProfile ${projectId}: expected an object`);
+  }
+  const profile = value as Record<string, unknown>;
+  for (const key of ["project_id", "repo_full_name", "local_path", "access_mode"] as const) {
+    if (typeof profile[key] !== "string" || profile[key].trim().length === 0) {
+      throw new Error(`invalid ProjectProfile ${projectId}: ${key} is required`);
+    }
+  }
+  if (!(["internal", "env"] as unknown[]).includes(profile.access_mode)) {
+    throw new Error(`invalid ProjectProfile ${projectId}: unsupported access_mode`);
+  }
+  if (profile.project_id !== projectId) {
+    throw new Error(`invalid ProjectProfile ${projectId}: project_id mismatch`);
+  }
+  for (const key of ["promotion_branches", "allowed_work_types", "allowed_start_branches", "ignored_untracked_paths"] as const) {
+    const field = profile[key];
+    if (field !== undefined && (!Array.isArray(field) || field.some((item) => typeof item !== "string"))) {
+      throw new Error(`invalid ProjectProfile ${projectId}: ${key} must be a string array`);
+    }
+  }
 }

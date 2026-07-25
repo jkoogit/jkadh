@@ -12,6 +12,8 @@ export interface ProjectPreflightSnapshot {
   repoFullName: string;
   currentBranch: string;
   trackedChanges: string[];
+  untrackedChanges: string[];
+  ignoredUntrackedChanges: string[];
   agentsFiles: string[];
   branchCommits: Record<string, string>;
   github: GitHubOpenStatus;
@@ -47,11 +49,15 @@ export function evaluateProjectPreflight(
   const lifecycleAllowed = missingBranches.length === 0
     && (profile.branch_alignment_policy === "promotion" || aligned);
   const repoMatches = normalizeRepo(snapshot.repoFullName) === normalizeRepo(profile.repo_full_name);
+  const allowedStartBranches = profile.allowed_start_branches ?? [profile.default_base_branch ?? "main"];
+  const branchAllowed = allowedStartBranches.includes(snapshot.currentBranch);
   const checks = {
     repository: repoMatches ? "pass" as const : "blocked" as const,
     agents: snapshot.agentsFiles.length > 0 ? "pass" as const : "blocked" as const,
     lifecycle: lifecycleAllowed ? "pass" as const : "blocked" as const,
     trackedWorktree: snapshot.trackedChanges.length === 0 ? "pass" as const : "blocked" as const,
+    untrackedWorktree: snapshot.untrackedChanges.length === 0 ? "pass" as const : "blocked" as const,
+    currentBranch: branchAllowed ? "pass" as const : "blocked" as const,
     github: snapshot.github.status === "available" ? "pass" as const : "blocked" as const
   };
   const blockers = [
@@ -60,6 +66,9 @@ export function evaluateProjectPreflight(
     ...(missingBranches.length > 0 ? [`missing lifecycle branches: ${missingBranches.join(", ")}`] : []),
     ...(missingBranches.length === 0 && !lifecycleAllowed ? ["lifecycle branches are not aligned by profile policy"] : []),
     ...(snapshot.trackedChanges.length > 0 ? [`tracked worktree changes: ${snapshot.trackedChanges.length}`] : []),
+    ...(snapshot.untrackedChanges.length > 0 ? [`untracked worktree changes: ${snapshot.untrackedChanges.length}`] : []),
+    ...(!branchAllowed ? [`current branch ${snapshot.currentBranch} is not an allowed start branch: ${allowedStartBranches.join(", ")}`] : []),
+    ...(profile.harness_enabled === false ? ["Harness is disabled for this project"] : []),
     ...(snapshot.github.status !== "available" ? [snapshot.github.detail] : [])
   ];
   const status: ProjectPreflightStatus = blockers.length > 0 ? "blocked" : "approval_required";
@@ -74,7 +83,9 @@ export function evaluateProjectPreflight(
     `- repository: ${checks.repository}; ${snapshot.repoFullName}`,
     `- AGENTS: ${checks.agents}; ${snapshot.agentsFiles.join(", ") || "missing"}`,
     `- branch lifecycle: ${checks.lifecycle}; policy=${profile.branch_alignment_policy ?? "aligned"}; ${branchDetail}`,
+    `- current branch: ${checks.currentBranch}; ${snapshot.currentBranch}; allowed=${allowedStartBranches.join(", ")}`,
     `- tracked worktree: ${checks.trackedWorktree}; changes=${snapshot.trackedChanges.length}`,
+    `- untracked worktree: ${checks.untrackedWorktree}; changes=${snapshot.untrackedChanges.length}; ignored=${snapshot.ignoredUntrackedChanges.length}`,
     `- GitHub: ${checks.github}; ${snapshot.github.detail}`,
     `- approval required: ${approvalRequired.join(", ")}`,
     ...(blockers.length > 0 ? ["", "## Blockers", "", ...blockers.map((blocker) => `- ${blocker}`)] : [])
@@ -85,20 +96,59 @@ export function evaluateProjectPreflight(
 
 export function readProjectPreflight(profile: ProjectProfile, repositoryRoot: string): ProjectPreflightResult {
   const cwd = resolveProjectLocalPath(profile, repositoryRoot);
-  const branches = unique([
-    profile.default_base_branch ?? "main",
-    profile.task_pr_base_branch ?? profile.default_base_branch ?? "main",
-    ...(profile.promotion_branches ?? [])
-  ]);
-  const snapshot: ProjectPreflightSnapshot = {
-    repoFullName: readOriginRepo(cwd),
-    currentBranch: runGit(cwd, ["branch", "--show-current"]),
-    trackedChanges: lines(runGit(cwd, ["status", "--porcelain", "--untracked-files=no"])),
-    agentsFiles: readAgentsFiles(cwd),
-    branchCommits: Object.fromEntries(branches.map((branch) => [branch, tryGit(cwd, ["rev-parse", `origin/${branch}`])])),
-    github: readGitHubOpenStatus(profile.repo_full_name, cwd)
+  try {
+    if (!existsSync(cwd)) return blockedResult(profile, `local path not found: ${cwd}`);
+    if (!tryGit(cwd, ["rev-parse", "--show-toplevel"])) return blockedResult(profile, `not a Git repository: ${cwd}`);
+    const branches = unique([
+      profile.default_base_branch ?? "main",
+      profile.task_pr_base_branch ?? profile.default_base_branch ?? "main",
+      ...(profile.promotion_branches ?? [])
+    ]);
+    const statusLines = lines(runGit(cwd, ["status", "--porcelain", "--untracked-files=all"]));
+    const ignoredPatterns = profile.ignored_untracked_paths ?? [];
+    const untracked = statusLines.filter((line) => line.startsWith("?? "));
+    const ignoredUntrackedChanges = untracked.filter((line) => isIgnoredUntracked(line, ignoredPatterns));
+    const snapshot: ProjectPreflightSnapshot = {
+      repoFullName: readOriginRepo(cwd),
+      currentBranch: runGit(cwd, ["branch", "--show-current"]),
+      trackedChanges: statusLines.filter((line) => !line.startsWith("?? ")),
+      untrackedChanges: untracked.filter((line) => !isIgnoredUntracked(line, ignoredPatterns)),
+      ignoredUntrackedChanges,
+      agentsFiles: readAgentsFiles(cwd),
+      branchCommits: Object.fromEntries(branches.map((branch) => [branch, tryGit(cwd, ["rev-parse", `origin/${branch}`])])),
+      github: readGitHubOpenStatus(profile.repo_full_name, cwd)
+    };
+    return evaluateProjectPreflight(profile, snapshot);
+  } catch (error) {
+    return blockedResult(profile, error instanceof Error ? error.message : "preflight read failed");
+  }
+}
+
+function blockedResult(profile: ProjectProfile, blocker: string): ProjectPreflightResult {
+  const markdown = `# Project target preflight\n\n- project: ${profile.project_id}\n- status: blocked\n\n## Blockers\n\n- ${blocker}\n`;
+  return {
+    status: "blocked",
+    checks: {
+      repository: "blocked",
+      agents: "blocked",
+      lifecycle: "blocked",
+      trackedWorktree: "blocked",
+      untrackedWorktree: "blocked",
+      currentBranch: "blocked",
+      github: "blocked"
+    },
+    blockers: [blocker],
+    approvalRequired,
+    markdown
   };
-  return evaluateProjectPreflight(profile, snapshot);
+}
+
+function isIgnoredUntracked(line: string, patterns: string[]): boolean {
+  const path = line.slice(3).replace(/^"|"$/g, "").replaceAll("\\", "/");
+  return patterns.some((pattern) => {
+    const normalized = pattern.replaceAll("\\", "/");
+    return normalized.endsWith("/") ? path.startsWith(normalized) : path === normalized;
+  });
 }
 
 function readAgentsFiles(cwd: string): string[] {

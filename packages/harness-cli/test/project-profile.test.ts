@@ -84,3 +84,13 @@ test("project local path is resolved from the JKADH repository root", () => {
   assert.equal(isAbsolute(result), true);
   assert.match(result.replaceAll("\\", "/"), /\/workspace\/service$/);
 });
+
+test("project profile rejects missing required fields", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jkadh-invalid-profile-"));
+  try {
+    await writeFile(join(root, "invalid.json"), JSON.stringify({ project_id: "invalid" }), "utf8");
+    await assert.rejects(loadProjectProfile("invalid", root), /repo_full_name is required/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
