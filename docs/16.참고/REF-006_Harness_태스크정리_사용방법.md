@@ -42,6 +42,8 @@
 
 실행이 완료되면 완료 요약, 검증 결과, 제외 범위, 남은 작업을 HCP task의 `closeEvidence`에 구조화해 저장한다. 이 evidence는 이후 `#태스크승급` 정책 판단에서 재사용하며, 자유 형식 `--verification` 문자열만으로 승급 근거를 대신하지 않는다.
 
+task에 `sourceBacklogIds`가 있으면 정리 성공 시 complete 또는 archived 상태의 이전 HCP session까지 검색해 원본 Backlog를 `closed`로 전환한다. 원본 Backlog에는 해결 task ID, Issue 번호, 검증 결과와 해결 시각을 기록해 세션을 넘은 Backlog lifecycle을 종료한다. 연결된 source Backlog를 찾을 수 없으면 완료 상태를 가장하지 않고 HCP 상태 갱신을 차단한다.
+
 ## 2. 사용할 때
 
 다음 상황에서 사용한다.

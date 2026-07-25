@@ -4,6 +4,7 @@ export type PolicyStatus = "pass" | "blocked" | "info";
 
 export interface PolicyResult {
   policyId: string;
+  policyVersion: number;
   stage: HarnessStage;
   status: PolicyStatus;
   reason: string;
@@ -16,6 +17,7 @@ export interface StagePolicyContext {
 
 export interface StagePolicy {
   policyId: string;
+  policyVersion: number;
   stage: HarnessStage;
   evaluate(context: StagePolicyContext): PolicyResult;
 }
@@ -23,12 +25,14 @@ export interface StagePolicy {
 function requiredFactPolicy(stage: HarnessStage, policyId: string, fact: string, reason: string): StagePolicy {
   return {
     policyId,
+    policyVersion: 1,
     stage,
     evaluate(context) {
       const value = context.facts[fact];
       const passed = value === true || (typeof value === "string" && value.trim().length > 0);
       return {
         policyId,
+        policyVersion: 1,
         stage,
         status: passed ? "pass" : "blocked",
         reason: passed ? `${fact} confirmed` : reason,
@@ -52,6 +56,7 @@ const registry: StagePolicy[] = [
   requiredFactPolicy("task_promote", "task-promote.closed-task", "closedTask", "a closed HCP task is required"),
   requiredFactPolicy("task_promote", "task-promote.close-evidence", "closeEvidencePassed", "passing task close evidence is required"),
   requiredFactPolicy("task_promote", "task-promote.pull-request", "pullRequestLinked", "a linked pull request is required"),
+  requiredFactPolicy("task_promote", "task-promote.pr-dev-merge", "pullRequestMergedToDev", "the linked pull request merge commit must match the target commit on dev"),
   requiredFactPolicy("task_promote", "task-promote.dev-merge", "devContainsTarget", "origin/dev must contain the target commit"),
   requiredFactPolicy("session_close", "session-close.no-unfinished-task", "noUnfinishedTask", "active or closed tasks remain"),
   requiredFactPolicy("session_close", "session-close.retrospective", "retrospectiveReady", "retrospective is required")

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
+import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 
 export interface TaskCloseInput {
@@ -40,6 +41,7 @@ export interface TaskCloseReport {
     missing: string[];
     prReady: boolean;
     suggestedOrder?: string;
+    policyResults: PolicyResult[];
   };
   blockedActions: string[];
 }
@@ -182,9 +184,14 @@ export function parseTaskCloseBlock(block: string): TaskCloseInput {
 
 export function buildTaskCloseReport(input: TaskCloseInput): TaskCloseReport {
   const missing = missingFields(input);
+  const policyResults = evaluateStagePolicies("task_close", {
+    activeTask: input.execution?.enabled ? Boolean(input.taskId) : true,
+    completionSummary: input.completionSummary,
+    verificationResult: input.verificationResult
+  });
   const prReady = missing.length === 0 && normalizeNone(input.remainingWork);
   const suggestedOrder = missing.length > 0 ? buildSuggestedTaskCloseOrder(input) : undefined;
-  const status = missing.length === 0 ? "ready" : "blocked";
+  const status = missing.length === 0 && policiesPassed(policyResults) ? "ready" : "blocked";
   const gitSummary = input.gitSummary ?? { statusShort: "", diffStat: "" };
 
   const report = createReportDocument({
@@ -245,7 +252,8 @@ export function buildTaskCloseReport(input: TaskCloseInput): TaskCloseReport {
       input,
       missing,
       prReady,
-      suggestedOrder
+      suggestedOrder,
+      policyResults
     },
     blockedActions
   };

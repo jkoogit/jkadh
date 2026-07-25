@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 
 import { countUnresolvedBacklogEntries } from "../docs/backlog-index.ts";
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
+import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, readSessionById, resolveActiveSession } from "../state/session-state.ts";
 
@@ -62,6 +63,7 @@ export interface SessionCloseReport {
     issueCloseReady: boolean;
     appliedPolicies: PolicySummary[];
     scopeDecision: ScopeDecisionSummary;
+    policyResults: PolicyResult[];
   };
   blockedActions: string[];
 }
@@ -282,9 +284,13 @@ export function parseSessionCloseArgs(args: string[]): SessionCloseInput {
 
 export function buildSessionCloseReport(input: SessionCloseInput): SessionCloseReport {
   const missing = missingFields(input);
+  const policyResults = evaluateStagePolicies("session_close", {
+    noUnfinishedTask: !input.stateBlockers?.length,
+    retrospectiveReady: hasRetrospectiveArtifact(input)
+  });
   const issueCloseReady = input.verifiedIssueNumbers.length > 0;
   const decisionRequired = buildDecisionRequired(input, missing, issueCloseReady);
-  const status = missing.length === 0 ? "ready" : "blocked";
+  const status = missing.length === 0 && policiesPassed(policyResults) ? "ready" : "blocked";
   const appliedPolicies = buildAppliedPolicySummary(input);
   const scopeDecision = buildScopeDecisionSummary(input, status);
   const report = createReportDocument({
@@ -374,7 +380,8 @@ export function buildSessionCloseReport(input: SessionCloseInput): SessionCloseR
       decisionRequired,
       issueCloseReady,
       appliedPolicies,
-      scopeDecision
+      scopeDecision,
+      policyResults
     },
     blockedActions
   };

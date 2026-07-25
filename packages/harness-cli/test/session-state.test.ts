@@ -19,11 +19,15 @@ import {
   recordHcpCriteriaRevision,
   recordHcpTaskDiscovery,
   recordHcpTaskProcessEvidence,
+  recordHcpLifecyclePolicyEvidence,
+  readSessionById,
+  resolveHcpSourceBacklogs,
   linkHcpTaskLoop,
   transitionHcpSessionStatus,
   transitionHcpTaskPhase,
   updateHcpTaskDiscovery,
   updateHcpTaskBranch,
+  updateHcpTaskBoundary,
   updateHcpTaskPullRequest,
   updateHcpSession,
   updateHcpTask
@@ -131,6 +135,10 @@ test("hcp task registration records task id under selected active session", () =
     taskName: "HCP state task",
     issueNumber: 73,
     branchName: "task_codex/073-hcp-state",
+    scope: "store structured task boundary",
+    outOfScope: "deployment",
+    completionCriteria: "boundary is persisted",
+    verificationMethod: "npm test",
     now: new Date("2026-07-13T01:05:00.000Z")
   });
   const summary = buildHcpStateSummary(repo, session.sessionId);
@@ -138,6 +146,10 @@ test("hcp task registration records task id under selected active session", () =
   assert.equal(task.taskId, "codex_task_010_001");
   assert.equal(summary.selectedSession?.tasks[0].taskName, "HCP state task");
   assert.equal(summary.selectedSession?.tasks[0].issueNumber, 73);
+  assert.equal(summary.selectedSession?.tasks[0].scope, "store structured task boundary");
+  assert.equal(summary.selectedSession?.tasks[0].outOfScope, "deployment");
+  assert.equal(summary.selectedSession?.tasks[0].completionCriteria, "boundary is persisted");
+  assert.equal(summary.selectedSession?.tasks[0].verificationMethod, "npm test");
 });
 
 test("hcp task update records PR tracking id and status", () => {
@@ -166,6 +178,41 @@ test("hcp task update records PR tracking id and status", () => {
   assert.equal(closed.status, "closed");
   assert.equal(closed.pullRequest?.hcpPrId, "codex_pr_010_001");
   assert.equal(closed.pullRequest?.number, 74);
+});
+
+test("hcp task boundary update backfills structured lifecycle fields", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-task-boundary-"));
+  const session = createHcpSession(repo, { sessionNumber: "19", sessionName: "019_boundary" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "boundary task" });
+  const updated = updateHcpTaskBoundary(repo, {
+    sessionId: session.sessionId,
+    taskId: task.taskId,
+    scope: "scope",
+    outOfScope: "excluded",
+    completionCriteria: "complete",
+    verificationMethod: "test",
+    sourceBacklogIds: ["codex_blg_018_001"]
+  });
+
+  assert.equal(updated.scope, "scope");
+  assert.deepEqual(updated.sourceBacklogIds, ["codex_blg_018_001"]);
+  assert.equal(readSessionById(repo, session.sessionId).changeLog?.at(-1)?.action, "task.update_boundary");
+});
+
+test("lifecycle policy evidence records stage version and application time", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-policy-evidence-"));
+  const session = createHcpSession(repo, { sessionNumber: "19", sessionName: "019_policy" });
+  recordHcpLifecyclePolicyEvidence(repo, {
+    sessionId: session.sessionId,
+    stage: "task_start",
+    outcome: "passed",
+    evaluatedPolicies: [{ policyId: "task-start.scope", policyVersion: 1, stage: "task_start", status: "pass", reason: "scope confirmed" }],
+    now: new Date("2026-07-25T01:00:00.000Z")
+  });
+  const stored = readSessionById(repo, session.sessionId);
+  assert.equal(stored.lifecyclePolicyEvidence?.[0].evaluatedPolicies[0].policyVersion, 1);
+  assert.equal(stored.lifecyclePolicyEvidence?.[0].recordedAt, "2026-07-25T01:00:00.000Z");
+  assert.equal(stored.changeLog.at(-1)?.action, "policy.evaluate");
 });
 
 test("hcp task close stores structured verification evidence", () => {
@@ -366,6 +413,27 @@ test("hcp backlog add and delete are tracked in session state", () => {
   assert.equal(deleted.hcpBacklogId, item.hcpBacklogId);
   assert.equal(selected?.backlogItems.length, 0);
   assert.equal(selected?.changeLog.at(-1)?.action, "backlog.delete");
+});
+
+test("source backlog resolution updates an archived prior session with task evidence", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-source-backlog-"));
+  const previous = createHcpSession(repo, { sessionNumber: "18", sessionName: "018_previous" });
+  const backlog = addHcpBacklog(repo, { sessionId: previous.sessionId, title: "follow-up" });
+  transitionHcpSessionStatus(repo, previous.sessionId, "complete");
+  createHcpSession(repo, { sessionNumber: "19", sessionName: "019_current" });
+
+  const resolved = resolveHcpSourceBacklogs(repo, {
+    sourceBacklogIds: [backlog.hcpBacklogId],
+    taskId: "codex_task_019_001",
+    issueNumber: 127,
+    verificationResult: "170 tests passed",
+    now: new Date("2026-07-25T02:00:00.000Z")
+  });
+
+  assert.equal(resolved[0].status, "closed");
+  assert.equal(resolved[0].resolvedByTaskId, "codex_task_019_001");
+  assert.equal(readSessionById(repo, previous.sessionId).backlogItems[0].resolutionEvidence, "170 tests passed");
+  assert.equal(readSessionById(repo, previous.sessionId).changeLog.at(-1)?.action, "backlog.resolve");
 });
 
 test("hcp state tracks title and branch maintenance commands", () => {
