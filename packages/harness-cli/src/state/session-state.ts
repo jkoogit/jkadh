@@ -4,6 +4,31 @@ import type { PolicyRemediationIteration, PolicyRemediationLoopStatus } from "..
 
 export type HcpSessionStatus = "active" | "closing" | "complete" | "archived" | "blocked" | "failed";
 export type HcpTaskStatus = "active" | "closed" | "promoted" | "blocked" | "failed";
+export type HcpTaskPhase = "discovering" | "implementing" | "stabilizing" | "close_ready";
+export type HcpCriteriaStatus = "draft" | "provisional" | "frozen" | "superseded";
+export type HcpDiscoveryDisposition = "required" | "follow_up" | "rejected";
+
+export interface HcpCriteriaRevision {
+  version: number;
+  status: HcpCriteriaStatus;
+  criteria: string[];
+  reason: string;
+  changedAt: string;
+  invalidatedWorkItemIds: string[];
+  invalidatedEvidenceIds: string[];
+}
+
+export interface HcpTaskDiscovery {
+  discoveryId: string;
+  category: string;
+  severity: "low" | "medium" | "high" | "critical";
+  disposition: HcpDiscoveryDisposition;
+  blocksCurrentTask: boolean;
+  criterionIds: string[];
+  evidence: string;
+  rationale: string;
+  discoveredAt: string;
+}
 
 export interface HcpLinkedIssue {
   hcpIssueId: string;
@@ -66,8 +91,47 @@ export interface HcpTaskState {
   closeEvidence?: HcpTaskCloseEvidence;
   processEvidence?: HcpTaskProcessEvidence[];
   loopIds?: string[];
+  phase?: HcpTaskPhase;
+  criteriaRevisions?: HcpCriteriaRevision[];
+  discoveries?: HcpTaskDiscovery[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface RecordHcpCriteriaRevisionInput {
+  sessionId: string;
+  taskId: string;
+  status: Exclude<HcpCriteriaStatus, "superseded">;
+  criteria: string[];
+  reason: string;
+  invalidatedWorkItemIds?: string[];
+  invalidatedEvidenceIds?: string[];
+  phase?: HcpTaskPhase;
+  now?: Date;
+}
+
+export interface RecordHcpTaskDiscoveryInput {
+  sessionId: string;
+  taskId: string;
+  category: string;
+  severity: HcpTaskDiscovery["severity"];
+  disposition: HcpDiscoveryDisposition;
+  blocksCurrentTask: boolean;
+  criterionIds?: string[];
+  evidence: string;
+  rationale: string;
+  now?: Date;
+}
+
+export interface UpdateHcpTaskDiscoveryInput {
+  sessionId: string;
+  taskId: string;
+  discoveryId: string;
+  disposition: HcpDiscoveryDisposition;
+  blocksCurrentTask: boolean;
+  evidence: string;
+  rationale: string;
+  now?: Date;
 }
 
 export interface HcpSessionState {
@@ -480,6 +544,115 @@ export function recordHcpTaskProcessEvidence(repoRoot: string, input: RecordHcpT
   appendChange(session, timestamp, "task.record_process_evidence", task.taskId, `${input.status}: iterations=${input.iterations.length}`);
   writeSessionState(repoRoot, session);
   return task;
+}
+
+export function getHcpTaskPhase(task: HcpTaskState): HcpTaskPhase {
+  return task.phase ?? "implementing";
+}
+
+export function transitionHcpTaskPhase(repoRoot: string, sessionId: string, taskId: string, phase: HcpTaskPhase, now = new Date()): HcpTaskState {
+  const session = readSessionById(repoRoot, sessionId);
+  const task = resolveTask(session, taskId, "active");
+  const current = getHcpTaskPhase(task);
+  if (current === phase) return task;
+  const transitions: Record<HcpTaskPhase, HcpTaskPhase[]> = {
+    discovering: ["implementing"],
+    implementing: ["discovering", "stabilizing"],
+    stabilizing: ["discovering", "implementing", "close_ready"],
+    close_ready: ["discovering", "stabilizing"]
+  };
+  if (!transitions[current].includes(phase)) throw new Error(`Invalid task phase transition: ${current} -> ${phase}`);
+  const currentCriteria = task.criteriaRevisions?.findLast((revision) => revision.status !== "superseded");
+  if (phase === "implementing" && task.criteriaRevisions?.length && !["provisional", "frozen"].includes(currentCriteria?.status ?? "")) {
+    throw new Error("Task implementation requires provisional or frozen completion criteria");
+  }
+  if (phase === "close_ready") {
+    const readiness = evaluateHcpTaskCloseReadiness(task);
+    if (!readiness.ready) throw new Error(`Task is not close-ready: ${readiness.reasons.join("; ")}`);
+  }
+  const timestamp = now.toISOString(); task.phase = phase; task.updatedAt = timestamp; session.updatedAt = timestamp;
+  appendChange(session, timestamp, "task.transition_phase", task.taskId, `${current} -> ${phase}`);
+  writeSessionState(repoRoot, session); return task;
+}
+
+export function recordHcpCriteriaRevision(repoRoot: string, input: RecordHcpCriteriaRevisionInput): HcpTaskState {
+  const session = readSessionById(repoRoot, input.sessionId);
+  const task = resolveTask(session, input.taskId, "active");
+  const criteria = input.criteria.map((criterion) => criterion.trim()).filter(Boolean);
+  if (!criteria.length) throw new Error("Completion criteria are required");
+  if (!input.reason.trim()) throw new Error("Criteria revision reason is required");
+  const revisions = task.criteriaRevisions ?? [];
+  const current = revisions.findLast((revision) => revision.status !== "superseded");
+  const invalidatedWorkItemIds = [...new Set(input.invalidatedWorkItemIds ?? [])];
+  const invalidatedEvidenceIds = [...new Set(input.invalidatedEvidenceIds ?? [])];
+  if (current?.status === "frozen" && !invalidatedWorkItemIds.length && !invalidatedEvidenceIds.length) {
+    throw new Error("Revising frozen criteria requires explicit evidence or work item invalidation");
+  }
+  if (current) current.status = "superseded";
+  const timestamp = (input.now ?? new Date()).toISOString();
+  revisions.push({
+    version: Math.max(0, ...revisions.map((revision) => revision.version)) + 1,
+    status: input.status,
+    criteria,
+    reason: input.reason.trim(),
+    changedAt: timestamp,
+    invalidatedWorkItemIds,
+    invalidatedEvidenceIds
+  });
+  task.criteriaRevisions = revisions;
+  task.phase = input.phase ?? (input.status === "draft" ? "discovering" : input.status === "frozen" ? "stabilizing" : "implementing");
+  if (task.closeEvidence) {
+    invalidatedEvidenceIds.push(`task-close:${task.closeEvidence.recordedAt}`);
+    delete task.closeEvidence;
+  }
+  task.updatedAt = timestamp; session.updatedAt = timestamp;
+  appendChange(session, timestamp, "task.revise_completion_criteria", task.taskId, `v${revisions.at(-1)!.version} ${input.status}: ${input.reason.trim()}`);
+  writeSessionState(repoRoot, session); return task;
+}
+
+export function recordHcpTaskDiscovery(repoRoot: string, input: RecordHcpTaskDiscoveryInput): HcpTaskState {
+  const session = readSessionById(repoRoot, input.sessionId);
+  const task = resolveTask(session, input.taskId, "active");
+  if (!input.category.trim() || !input.evidence.trim() || !input.rationale.trim()) throw new Error("Discovery category, evidence and rationale are required");
+  if (input.disposition !== "required" && input.blocksCurrentTask) throw new Error(`${input.disposition} discovery cannot block the current task`);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const discoveries = task.discoveries ?? [];
+  discoveries.push({
+    discoveryId: `${task.taskId}_discovery_${String(discoveries.length + 1).padStart(3, "0")}`,
+    category: input.category.trim(), severity: input.severity, disposition: input.disposition,
+    blocksCurrentTask: input.blocksCurrentTask, criterionIds: [...new Set(input.criterionIds ?? [])],
+    evidence: input.evidence.trim(), rationale: input.rationale.trim(), discoveredAt: timestamp
+  });
+  task.discoveries = discoveries;
+  if (input.blocksCurrentTask) task.phase = "discovering";
+  task.updatedAt = timestamp; session.updatedAt = timestamp;
+  appendChange(session, timestamp, "task.record_discovery", task.taskId, `${input.disposition}: ${input.category.trim()}`);
+  writeSessionState(repoRoot, session); return task;
+}
+
+export function updateHcpTaskDiscovery(repoRoot: string, input: UpdateHcpTaskDiscoveryInput): HcpTaskState {
+  const session = readSessionById(repoRoot, input.sessionId);
+  const task = resolveTask(session, input.taskId, "active");
+  const discovery = task.discoveries?.find((candidate) => candidate.discoveryId === input.discoveryId);
+  if (!discovery) throw new Error(`HCP task discovery not found: ${input.discoveryId}`);
+  if (!input.evidence.trim() || !input.rationale.trim()) throw new Error("Discovery update evidence and rationale are required");
+  if (input.disposition !== "required" && input.blocksCurrentTask) throw new Error(`${input.disposition} discovery cannot block the current task`);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  discovery.disposition = input.disposition; discovery.blocksCurrentTask = input.blocksCurrentTask;
+  discovery.evidence = input.evidence.trim(); discovery.rationale = input.rationale.trim();
+  task.updatedAt = timestamp; session.updatedAt = timestamp;
+  appendChange(session, timestamp, "task.update_discovery", discovery.discoveryId, `${input.disposition}: blocks=${input.blocksCurrentTask}`);
+  writeSessionState(repoRoot, session); return task;
+}
+
+export function evaluateHcpTaskCloseReadiness(task: HcpTaskState): { ready: boolean; reasons: string[] } {
+  const revisions = task.criteriaRevisions ?? [];
+  if (!revisions.length) return { ready: true, reasons: ["legacy task: structured criteria not present"] };
+  const current = revisions.findLast((revision) => revision.status !== "superseded");
+  const reasons: string[] = [];
+  if (current?.status !== "frozen") reasons.push("completion criteria are not frozen");
+  if ((task.discoveries ?? []).some((discovery) => discovery.disposition === "required" && discovery.blocksCurrentTask)) reasons.push("unresolved required discovery remains");
+  return { ready: reasons.length === 0, reasons };
 }
 
 export function buildHcpSessionHandoff(session: HcpSessionState): string {

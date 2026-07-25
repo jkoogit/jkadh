@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
 
-import { approveLoopCondition, beginLoopWorkItemImplementation, buildRollbackReport, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, validateWorkItems } from "../src/state/loop-state.ts";
+import { approveLoopCondition, beginLoopWorkItemImplementation, buildRollbackReport, buildVerificationInvocation, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverBlockedLoopWorkItemCheckpoint, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, validateWorkItems } from "../src/state/loop-state.ts";
 
 const workItems = [{
   id: "work_001", title: "foundation", dependencies: [], completionConditions: ["tests pass"],
@@ -30,6 +30,25 @@ test("loop analysis derives initial readiness from dependencies rather than regi
   assert.equal(loop.workItems.find((item) => item.id === "work_002")?.status, "pending");
   assert.equal(loop.workItems.find((item) => item.id === "work_001")?.status, "ready");
   assert.equal(loop.workItems.find((item) => item.id === "work_003")?.status, "ready");
+});
+
+test("verification invocation uses explicit ComSpec without shell mode on Windows", () => {
+  const repo = createGitRepo("verification-invocation");
+  const invocation = buildVerificationInvocation(repo, "npm run check", "win32", "C:\\Windows\\System32\\cmd.exe");
+  assert.equal(invocation.executable, "C:\\Windows\\System32\\cmd.exe");
+  assert.deepEqual(invocation.args, ["/d", "/s", "/c", "npm.cmd run check"]);
+  assert.equal(invocation.shell, false);
+  assert.equal(invocation.cwd, repo);
+  assert.throws(() => buildVerificationInvocation(repo, "arbitrary command", "win32"), /not allowed/);
+});
+
+test("begin implementation blocks when another work item is active", () => {
+  const repo = createGitRepo("single-active");
+  const items = [workItems[0], { ...workItems[0], id: "work_002", dependencies: [] }];
+  const loop = createLoopRun(repo, { sessionId: "s", taskId: "codex_task_018_001", title: "loop", objective: "x", workItems: items });
+  transitionLoop(repo, loop.loopId, "running");
+  beginLoopWorkItemImplementation(repo, loop.loopId);
+  assert.throws(() => beginLoopWorkItemImplementation(repo, loop.loopId), /Active work item already exists: work_001/);
 });
 
 test("loop run is task scoped and supports candidate selection soft delete and restore", () => {
@@ -100,6 +119,27 @@ test("checkpoint digest detects a loop change to an already dirty file", () => {
   writeFileSync(join(repo, "existing.txt"), "changed by loop\n");
   const completed = completeLoopWorkItemImplementation(repo, loop.loopId, "changed existing dirty file");
   assert.deepEqual(completed.workItems[0].implementationEvidence?.changedFiles, ["existing.txt"]);
+});
+
+test("scope violation records offending paths and checkpoint recovery preserves only the work item change", () => {
+  const repo = createGitRepo("scope-recovery");
+  const item = { ...workItems[0], allowedPaths: ["guide.md"], verificationCommands: ["git diff --check"] };
+  const loop = createLoopRun(repo, { sessionId: "s", taskId: "codex_task_018_001", title: "loop", objective: "x", workItems: [item] });
+  transitionLoop(repo, loop.loopId, "running"); beginLoopWorkItemImplementation(repo, loop.loopId);
+  writeFileSync(join(repo, "guide.md"), "loop guide\n");
+  writeFileSync(join(repo, "task-fix.ts"), "task repair\n");
+  const blocked = completeLoopWorkItemImplementation(repo, loop.loopId, "guide written");
+  assert.equal(blocked.workItems[0].lastError, "path_scope_violation:task-fix.ts");
+  assert.deepEqual(blocked.workItems[0].implementationEvidence?.scopeViolationPaths, ["task-fix.ts"]);
+
+  const recovered = recoverBlockedLoopWorkItemCheckpoint(repo, loop.loopId, "work_001", ["guide.md"], "task_level_change_excluded");
+  assert.equal(recovered.status, "paused");
+  assert.equal(recovered.workItems[0].status, "implementing");
+  assert.deepEqual(recovered.recoveryHistory?.at(-1)?.preservedPaths, ["guide.md"]);
+  transitionLoop(repo, loop.loopId, "running");
+  const handedOff = completeLoopWorkItemImplementation(repo, loop.loopId, "guide written");
+  assert.deepEqual(handedOff.workItems[0].implementationEvidence?.changedFiles, ["guide.md"]);
+  assert.equal(runNextLoopWorkItem(repo, loop.loopId).status, "completed");
 });
 
 test("targeted analysis revision invalidates the work item and its dependents only", () => {
