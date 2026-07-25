@@ -209,6 +209,22 @@ Issue #124의 첫 Loop Run에서 분석·구현·검증을 실제 수행한 결�
 - `#태스크정리`는 구조화된 criteria가 있으면 frozen 기준과 미해결 `required` 발견을 확인한다.
 - 발견 갱신은 evidence와 rationale을 요구하며 `follow_up`과 `rejected`가 현재 태스크를 차단하지 못하게 한다.
 
+### Loop 종료 outcome evidence
+
+Loop가 `completed`, `blocked`, `failed`, `cancelled`로 종료되면 WorkItem별 상태를 다시 해석하지 않아도 되도록 `outcomeEvidence`를 저장한다.
+
+```text
+outcomeEvidence:
+  status, stopReason, resultCounts,
+  totalAttempts, verificationCount, recoveryCount,
+  unresolvedWorkItemIds, retryExhaustedWorkItemIds,
+  recordedAt
+```
+
+`completed_changed`와 `completed_no_change`는 결과 분포로 구분한다. 검증 실패 후 WorkItem의 `maxAttempts`를 소진하면 `stopReason=retry_exhausted`로 기록한다. 차단된 항목과 재시도 소진 항목은 ID 목록으로 남겨 사용자 판단 또는 후속 Backlog 분리의 입력으로 사용한다.
+
+Issue #124의 완료 Loop는 WorkItem 6개, 총 시도 6회, 검증 10회, recovery 3회의 evidence를 남겼다. 이 실사용에서는 모든 WorkItem이 한 번의 시도로 완료됐고 의미 기반 평가, 다중 agent revision 잠금, 시간·토큰 budget이 없어서 종료 판단이 실패한 사례는 없었다. 따라서 해당 항목은 자동화하지 않고 후속 재평가 대상으로 유지한다.
+
 ## 15. 관련 문서
 
 - [POL-003 Git 작업관리방안](../03.정책/POL-003_Git_작업관리방안.md)

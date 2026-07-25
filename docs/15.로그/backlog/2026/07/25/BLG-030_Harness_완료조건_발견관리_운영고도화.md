@@ -1,16 +1,16 @@
 # BLG-030 Harness 완료조건·발견관리 운영 고도화
 
 > Backlog ID: BLG-030
-> 상태: Open
+> 상태: Resolved
 > 유형: HCP
 > 생성일: 2026-07-25
-> 처리시점: 다음 Issue 선정 시
+> 처리시점: 해결 완료
 > 우선순위: Low
 > 의존 대상: Issue #124 완료조건 revision·discovery disposition 최소 상태 모델의 운영 결과
 > 출처: Issue #124 Loop Run 실사용
-> 연결 Issue: -
+> 연결 Issue: [#134](https://github.com/jkoogit/jkadh/issues/134)
 > 연결 PR: -
-> 해결 문서: -
+> 해결 문서: [DSN-011 Harness 완료조건 탐구와 루프 개선관리 설계](../../../../05.설계/DSN-011_Harness_완료조건_탐구와_루프_개선관리_설계.md)
 
 ## 목차
 
@@ -45,5 +45,8 @@ Issue #124는 새 명령을 대량 추가하지 않고 HCP task 선택 필드와
 | 날짜 | 상태 | 연결 대상 | 내용 |
 |---|---|---|---|
 | 2026-07-25 | Open | [DSN-011](../../../../05.설계/DSN-011_Harness_완료조건_탐구와_루프_개선관리_설계.md) | Issue #124 실사용 후속 운영 고도화 항목 등록 |
+| 2026-07-25 | Issue Linked | [#134](https://github.com/jkoogit/jkadh/issues/134) | 완료 Loop evidence를 재평가하고 종료 outcome evidence 최소 보완을 태스크로 시작 |
+| 2026-07-25 | Issue Linked | [BLG-134-001](./BLG-134-001_Loop_criteria_자동평가_동시revision_budget_재평가.md) | 반복 근거가 부족한 전용 명령, 의미 평가, 동시 revision 잠금과 시간·토큰 budget을 Deferred 후속으로 분리 |
+| 2026-07-25 | Resolved | [DSN-011](../../../../05.설계/DSN-011_Harness_완료조건_탐구와_루프_개선관리_설계.md) | Loop 종료 outcome evidence, CLI 요약과 retry 소진 판정을 구현·검증하고 고급 자동화 잔여를 후속 Backlog로 분리 |
 
 [목차로 이동](#목차)

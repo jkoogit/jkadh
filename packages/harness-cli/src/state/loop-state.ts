@@ -33,6 +33,18 @@ export interface LoopCheckpoint {
   createdAt: string;
 }
 
+export interface LoopOutcomeEvidence {
+  status: "completed" | "blocked" | "failed" | "cancelled";
+  stopReason: string;
+  resultCounts: Partial<Record<LoopResultType, number>>;
+  totalAttempts: number;
+  verificationCount: number;
+  recoveryCount: number;
+  unresolvedWorkItemIds: string[];
+  retryExhaustedWorkItemIds: string[];
+  recordedAt: string;
+}
+
 export interface HcpLoopRun {
   schemaVersion: 1;
   loopId: string;
@@ -48,6 +60,7 @@ export interface HcpLoopRun {
   checkpoints: LoopCheckpoint[];
   approvals?: Array<{ workItemId: string; conditionValue: string; approvedBy: string; approvedAt: string }>;
   recoveryHistory?: Array<{ reason: string; preservedWorkItemId: string; resetWorkItemIds: string[]; fileChangesPreserved: boolean; preservedPaths?: string[]; checkpointRebased?: boolean; recoveredAt: string }>;
+  outcomeEvidence?: LoopOutcomeEvidence;
   deletion?: { deletedAt: string; reason: string; previousStatus: LoopStatus; replacementLoopId?: string; exclusionApproved?: boolean };
   lease?: { owner: string; acquiredAt: string; expiresAt: string };
   createdAt: string;
@@ -161,6 +174,7 @@ export function runNextLoopWorkItem(repoRoot: string, loopId: string, now = new 
   if (!item) {
     if (loop.workItems.every((candidate) => ["completed", "skipped"].includes(candidate.status))) loop.status = "completed";
     else loop.status = "blocked";
+    loop.updatedAt = now.toISOString();
     writeLoop(repoRoot, loop); return loop;
   }
   if (item.status !== "implementation_complete" || !item.implementationEvidence) throw new Error("Work item implementation is not complete");
@@ -175,13 +189,13 @@ export function runNextLoopWorkItem(repoRoot: string, loopId: string, now = new 
       item.lastError = "verification_failed"; item.resultType = "failed_verification";
       const policy = item.retryPolicy ?? { maxAttempts: 1, retryableErrors: [] };
       item.status = item.attempt < policy.maxAttempts && policy.retryableErrors.includes(item.lastError) && !policy.requireAnalysisRevisionAfterFailure ? "ready" : "blocked";
-      loop.status = item.status === "ready" ? "paused" : "blocked"; delete loop.lease; writeLoop(repoRoot, loop); return loop;
+      loop.status = item.status === "ready" ? "paused" : "blocked"; delete loop.lease; loop.updatedAt = now.toISOString(); writeLoop(repoRoot, loop); return loop;
     }
   }
   const conditionFailure = evaluateCompletionConditions(repoRoot, loop, item);
-  if (conditionFailure) { item.lastError = conditionFailure; item.status = "blocked"; loop.status = "blocked"; delete loop.lease; writeLoop(repoRoot, loop); return loop; }
+  if (conditionFailure) { item.lastError = conditionFailure; item.status = "blocked"; loop.status = "blocked"; delete loop.lease; loop.updatedAt = now.toISOString(); writeLoop(repoRoot, loop); return loop; }
   const resultType: LoopResultType = item.implementationEvidence.changedFiles.length ? "completed_changed" : "completed_no_change";
-  if (!item.expectedResults.includes(resultType)) { item.lastError = `unexpected_result:${resultType}`; item.resultType = resultType; item.status = "blocked"; loop.status = "blocked"; delete loop.lease; writeLoop(repoRoot, loop); return loop; }
+  if (!item.expectedResults.includes(resultType)) { item.lastError = `unexpected_result:${resultType}`; item.resultType = resultType; item.status = "blocked"; loop.status = "blocked"; delete loop.lease; loop.updatedAt = now.toISOString(); writeLoop(repoRoot, loop); return loop; }
   item.status = "completed"; item.resultType = resultType; delete item.lastError;
   for (const candidate of loop.workItems.filter((entry) => entry.status === "pending")) {
     if (candidate.dependencies.every((id) => loop.workItems.find((entry) => entry.id === id)?.status === "completed")) candidate.status = "ready";
@@ -255,6 +269,7 @@ export function completeLoopWorkItemImplementation(repoRoot: string, loopId: str
   item.implementationEvidence = { ...item.implementationEvidence, summary, changedFiles, ...(outside.length ? { scopeViolationPaths: outside } : {}), checkpointAfter: after, completedAt: now.toISOString() };
   if (outside.length) { item.lastError = `path_scope_violation:${outside.join(',')}`; item.status = "blocked"; loop.status = "blocked"; delete loop.lease; }
   else item.status = "implementation_complete";
+  loop.updatedAt = now.toISOString();
   writeLoop(repoRoot, loop); return loop;
 }
 
@@ -333,6 +348,36 @@ export function executeApprovedRollback(repoRoot: string, loopId: string, approv
   const loop = readLoop(repoRoot, loopId, true); loop.checkpoints.push(createCheckpointValue(repoRoot, loop, "rollback_after", now)); loop.status = "paused"; loop.updatedAt = now.toISOString(); writeLoop(repoRoot, loop); return loop;
 }
 
+export function buildLoopOutcomeEvidence(loop: HcpLoopRun): LoopOutcomeEvidence | undefined {
+  if (!["completed", "blocked", "failed", "cancelled"].includes(loop.status)) return undefined;
+  const resultCounts: Partial<Record<LoopResultType, number>> = {};
+  for (const item of loop.workItems) {
+    if (item.resultType) resultCounts[item.resultType] = (resultCounts[item.resultType] ?? 0) + 1;
+  }
+  const unresolved = loop.workItems.filter((item) => !["completed", "skipped"].includes(item.status));
+  const retryExhausted = unresolved.filter((item) => {
+    const policy = item.retryPolicy ?? { maxAttempts: 1, retryableErrors: [] };
+    return item.attempt >= policy.maxAttempts && Boolean(item.lastError);
+  });
+  const blockingError = unresolved.find((item) => item.lastError)?.lastError;
+  const stopReason = loop.status === "completed"
+    ? "all_work_items_terminal"
+    : retryExhausted.length
+      ? "retry_exhausted"
+      : blockingError ?? (loop.status === "blocked" ? "no_runnable_work_item" : `loop_${loop.status}`);
+  return {
+    status: loop.status as LoopOutcomeEvidence["status"],
+    stopReason,
+    resultCounts,
+    totalAttempts: loop.workItems.reduce((sum, item) => sum + item.attempt, 0),
+    verificationCount: loop.workItems.reduce((sum, item) => sum + (item.verificationEvidence?.length ?? 0), 0),
+    recoveryCount: loop.recoveryHistory?.length ?? 0,
+    unresolvedWorkItemIds: unresolved.map((item) => item.id),
+    retryExhaustedWorkItemIds: retryExhausted.map((item) => item.id),
+    recordedAt: loop.updatedAt
+  };
+}
+
 function hasDependencyCycle(items: LoopWorkItemDefinition[]): boolean {
   const deps = new Map(items.map((item) => [item.id, item.dependencies]));
   const visiting = new Set<string>(); const visited = new Set<string>();
@@ -347,13 +392,20 @@ function hasDependencyCycle(items: LoopWorkItemDefinition[]): boolean {
 function loopRoot(repoRoot: string, folder: string): string { return join(repoRoot, ".hcp", "loops", folder); }
 function readLoopFolder(repoRoot: string, folder: string): HcpLoopRun[] {
   const root = loopRoot(repoRoot, folder); if (!existsSync(root)) return [];
-  return readdirSync(root).filter((name) => name.endsWith(".json")).map((name) => JSON.parse(readFileSync(join(root, name), "utf8")) as HcpLoopRun);
+  return readdirSync(root).filter((name) => name.endsWith(".json")).map((name) => {
+    const loop = JSON.parse(readFileSync(join(root, name), "utf8")) as HcpLoopRun;
+    loop.outcomeEvidence ??= buildLoopOutcomeEvidence(loop);
+    return loop;
+  });
 }
 function readLoop(repoRoot: string, loopId: string, includeDeleted: boolean): HcpLoopRun {
   const loop = listLoopRuns(repoRoot, undefined, includeDeleted).find((item) => item.loopId === loopId);
   if (!loop) throw new Error(`Loop not found: ${loopId}`); return loop;
 }
 function writeLoop(repoRoot: string, loop: HcpLoopRun): void {
+  const outcomeEvidence = buildLoopOutcomeEvidence(loop);
+  if (outcomeEvidence) loop.outcomeEvidence = outcomeEvidence;
+  else delete loop.outcomeEvidence;
   const folder = loop.status === "deleted" ? "deleted" : loop.status === "completed" ? "completed" : "active";
   const path = join(loopRoot(repoRoot, folder), `${loop.loopId}.json`); mkdirSync(dirname(path), { recursive: true });
   const temp = `${path}.tmp`; writeFileSync(temp, `${JSON.stringify(loop, null, 2)}\n`, "utf8");

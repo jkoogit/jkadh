@@ -1345,8 +1345,13 @@ function validateLoopAnalysisTarget(repoRoot: string, sessionId: string, taskId:
 }
 
 function splitList(value: string): string[] { return value.split(/[;,]/).map((item) => item.trim()).filter(Boolean); }
-function formatLoopList(loops: Array<{ loopId: string; title: string; status: string; analysisVersion: number; workItems: Array<{ status: string }> }>): string {
-  return ["# Loop list", "", `- candidates: ${loops.length}`, ...loops.map((loop, index) => `${index + 1}. ${loop.loopId} | ${loop.status} | analysis v${loop.analysisVersion} | ${loop.workItems.filter((item) => item.status === "completed").length}/${loop.workItems.length} | ${loop.title}`)].join("\n");
+function formatLoopList(loops: Array<{ loopId: string; title: string; status: string; analysisVersion: number; workItems: Array<{ status: string }>; outcomeEvidence?: { stopReason: string; resultCounts: Partial<Record<string, number>> } }>): string {
+  return ["# Loop list", "", `- candidates: ${loops.length}`, ...loops.map((loop, index) => {
+    const outcomes = loop.outcomeEvidence
+      ? Object.entries(loop.outcomeEvidence.resultCounts).map(([result, count]) => `${result}=${count}`).join(",") || "none"
+      : "pending";
+    return `${index + 1}. ${loop.loopId} | ${loop.status} | analysis v${loop.analysisVersion} | ${loop.workItems.filter((item) => item.status === "completed").length}/${loop.workItems.length} | stop=${loop.outcomeEvidence?.stopReason ?? "pending"} | results=${outcomes} | ${loop.title}`;
+  })].join("\n");
 }
 
 function resolveGitRoot(cwd: string): string {

@@ -41,10 +41,10 @@
 | ID | 제목 | 상태 | 처리시점 | 우선순위 | 의존 대상 | 연결 Issue | 경로 |
 |---|---|---|---|---|---|---|---|
 | BLG-022 | Backlog 문서 템플릿 분리 검토 | Deferred | 정기 점검 시 | Low | 공식 문서 템플릿 적용 결과 확인 | - | [BLG-022](./2026/07/07/BLG-022_Backlog_문서_템플릿_분리_검토.md) |
-| BLG-030 | Harness 완료조건·발견관리 운영 고도화 | Open | 다음 Issue 선정 시 | Low | Issue #124 최소 상태 모델 운영 결과 | - | [BLG-030](./2026/07/25/BLG-030_Harness_완료조건_발견관리_운영고도화.md) |
 | BLG-031 | GitHub 외부 payload 승인과 HCP 실행권한 분리 | Open | 승인 차단 재현 또는 권한 모델 정비 시 | Medium | 세션 019 외부 전송 승인 검토 | - | [BLG-031](./2026/07/25/BLG-031_GitHub_외부_payload_승인과_HCP_실행권한_분리.md) |
 | BLG-032 | 세션 종료 후 태스크 브랜치 lifecycle 후처리 보강 | Open | Harness session close 후처리 개선 시 | Medium | 세션 019 종료 후 브랜치 잔여 확인 | - | [BLG-032](./2026/07/25/BLG-032_세션종료후_태스크브랜치_lifecycle_후처리_보강.md) |
 | BLG-132-001 | 타겟서비스 대상 Harness 적용 재검토 | Deferred | 선행 작업 완료 후 | Medium | Loop 기능 보완과 열린 Backlog 정리 | #132 | [BLG-132-001](./2026/07/25/BLG-132-001_타겟서비스_대상_Harness_적용_재검토.md) |
+| BLG-134-001 | Loop criteria 자동평가·동시 revision·budget 재평가 | Deferred | 정기 점검 시 | Low | 반복 Loop 운영 evidence | #134 | [BLG-134-001](./2026/07/25/BLG-134-001_Loop_criteria_자동평가_동시revision_budget_재평가.md) |
 
 ## 관련 문서
 
