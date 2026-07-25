@@ -42,6 +42,7 @@ import {
   readSessionById,
   linkHcpTaskLoop,
   recordHcpTaskProcessEvidence,
+  recordHcpTaskRecoveryEvidence,
   recordHcpLifecyclePolicyEvidence,
   resolveActiveSession,
   resolveHcpSourceBacklogs,
@@ -321,6 +322,18 @@ async function run(argv: string[]): Promise<number> {
       });
       const execution = executeTaskClose(input, repoRoot);
       console.log(execution.markdown);
+      if (execution.status === "blocked" && execution.recovery && input.sessionId && input.taskId) {
+        recordHcpTaskRecoveryEvidence(repoRoot, {
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          failedAction: execution.recovery.failedAction,
+          completedActions: execution.recovery.completedActions,
+          category: execution.recovery.category,
+          retryable: execution.recovery.retryable,
+          failure: execution.recovery.failure,
+          recoveryAction: execution.recovery.recovery
+        });
+      }
       if (execution.status === "executed") {
         try {
           const task = updateHcpTask(repoRoot, {

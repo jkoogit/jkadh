@@ -260,6 +260,35 @@ test("task start reports partial recovery without duplicating an existing issue"
   assert.match(result.markdown, /## Recovery/);
   assert.match(result.markdown, /create_issue=using existing issue #127/);
   assert.match(result.markdown, /HCP task registration: not completed/);
+  assert.equal(result.recovery, undefined);
+});
+
+test("task start classifies GitHub issue network failures without creating a branch", () => {
+  const result = executeTaskStart({
+    workOrderId: "WO-NETWORK",
+    scope: "scope",
+    outOfScope: "excluded",
+    completionCriteria: "complete",
+    verificationMethod: "test",
+    execution: { enabled: true, startPoint: "origin/main", branchName: "task_codex/network" }
+  }, "repo", {
+    run(command) {
+      if (command === "gh") throw new Error("Could not resolve host: api.github.com");
+      throw new Error("branch creation must not run");
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /category=network; retryable=yes/);
+  assert.deepEqual(result.steps.map((step) => step.action), ["create_issue"]);
+  assert.deepEqual(result.recovery, {
+    failedAction: "create_issue",
+    completedActions: [],
+    category: "network",
+    retryable: true,
+    failure: "Could not resolve host: api.github.com",
+    recovery: "preserve completed local work, verify connectivity, then retry only the failed GitHub action"
+  });
 });
 
 test("task start reports recovery after branch creation when HCP registration fails", () => {

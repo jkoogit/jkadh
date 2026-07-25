@@ -548,6 +548,12 @@ test("session close execution prints recovery report when PR creation fails afte
   assert.match(result.markdown, /failed action: create_pr/);
   assert.match(result.markdown, /created commit: yes/);
   assert.match(result.markdown, /pushed branch: yes/);
+  assert.match(result.markdown, /failure category: api/);
+  assert.match(result.markdown, /retryable: no/);
+  assert.match(result.markdown, /recovery action: inspect the GitHub API response/);
+  assert.equal(result.recovery?.failedAction, "create_pr");
+  assert.equal(result.recovery?.failureCategory, "api");
+  assert.ok(result.recovery?.completedActions?.includes("push_branch"));
   assert.match(result.markdown, /GraphQL: head and base must be different/);
 });
 

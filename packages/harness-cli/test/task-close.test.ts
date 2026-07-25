@@ -322,3 +322,35 @@ test("task close execution blocks merge gate without downgrading to no-merge", (
   assert.doesNotMatch(result.markdown, /--no-merge/);
   assert.doesNotMatch(calls.join("\n"), /gh pr merge/);
 });
+
+test("task close reports retryable GitHub network evidence after preserving commit and push", () => {
+  const result = executeTaskClose({
+    completionSummary: "implemented",
+    verificationResult: "tests passed",
+    outOfScope: "promotion",
+    remainingWork: "none",
+    execution: {
+      enabled: true,
+      paths: ["file.ts"],
+      commitMessage: "feat: test",
+      prTitle: "[127]_(019)_Network_recovery",
+      relatedIssueNumber: 127,
+      baseBranch: "dev",
+      mergePr: true
+    }
+  }, "repo", {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "task_codex/127-network";
+      if (command === "gh" && args[0] === "pr" && args[1] === "view") return "";
+      if (command === "gh" && args[0] === "pr" && args[1] === "create") throw new Error("ETIMEDOUT api.github.com");
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /create_pr: category=network; retryable=yes/);
+  assert.deepEqual(result.steps.slice(0, 2).map((step) => step.status), ["executed", "executed"]);
+  assert.equal(result.recovery?.failedAction, "create_pr");
+  assert.deepEqual(result.recovery?.completedActions, ["commit_changes", "push_branch"]);
+  assert.equal(result.recovery?.category, "network");
+});

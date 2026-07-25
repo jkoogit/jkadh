@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
+import { classifyGitHubCommandFailure, formatGitHubFailureEvidence } from "../github/command-failure.ts";
 
 export interface TaskCloseInput {
   agentId?: string;
@@ -63,6 +64,12 @@ export interface TaskCloseExecutionResult {
     status: "executed" | "blocked" | "skipped";
     detail: string;
   }[];
+  recovery?: GitHubActionRecoveryEvidence;
+}
+
+export interface GitHubActionRecoveryEvidence extends ReturnType<typeof classifyGitHubCommandFailure> {
+  failedAction: HarnessAction;
+  completedActions: HarnessAction[];
 }
 
 export function parseTaskCloseArgs(args: string[]): TaskCloseInput {
@@ -312,7 +319,21 @@ export function executeTaskClose(
       return buildExecutionResult("blocked", steps);
     }
 
-    steps.push(runExecutionStep(action, input.execution, cwd, runner));
+    try {
+      steps.push(runExecutionStep(action, input.execution, cwd, runner));
+    } catch (error) {
+      if (!isGitHubAction(action)) {
+        steps.push({ action, status: "blocked", detail: error instanceof Error ? error.message : "command failed" });
+        return buildExecutionResult("blocked", steps);
+      }
+      const evidence = classifyGitHubCommandFailure(error);
+      steps.push({ action, status: "blocked", detail: formatGitHubFailureEvidence(evidence) });
+      return buildExecutionResult("blocked", steps, {
+        ...evidence,
+        failedAction: action,
+        completedActions: steps.filter((step) => step.status === "executed" || step.status === "skipped").map((step) => step.action)
+      });
+    }
   }
 
   return buildExecutionResult("executed", steps);
@@ -536,7 +557,7 @@ function buildDefaultPrBody(execution: TaskCloseExecutionOptions): string {
   return body.join("\n");
 }
 
-function buildExecutionResult(status: TaskCloseExecutionResult["status"], steps: TaskCloseExecutionResult["steps"]): TaskCloseExecutionResult {
+function buildExecutionResult(status: TaskCloseExecutionResult["status"], steps: TaskCloseExecutionResult["steps"], recovery?: GitHubActionRecoveryEvidence): TaskCloseExecutionResult {
   const retryOrder = buildMergeRetryOrder(status, steps);
   const markdown = [
     "# Harness CLI task close execution",
@@ -552,8 +573,13 @@ function buildExecutionResult(status: TaskCloseExecutionResult["status"], steps:
   return {
     status,
     markdown: `${markdown}\n`,
-    steps
+    steps,
+    recovery
   };
+}
+
+function isGitHubAction(action: HarnessAction): boolean {
+  return action === "create_pr" || action === "merge_pr_to_dev";
 }
 
 function buildMergeRetryOrder(status: TaskCloseExecutionResult["status"], steps: TaskCloseExecutionResult["steps"]): string | undefined {

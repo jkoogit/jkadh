@@ -6,6 +6,7 @@ import { countUnresolvedBacklogEntries } from "../docs/backlog-index.ts";
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
+import { classifyGitHubCommandFailure, type GitHubFailureCategory } from "../github/command-failure.ts";
 import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, readSessionById, resolveActiveSession } from "../state/session-state.ts";
 
 export interface SessionCloseInput {
@@ -80,6 +81,7 @@ export interface SessionCloseExecutionResult {
     status: "executed" | "blocked" | "skipped";
     detail: string;
   }[];
+  recovery?: SessionCloseRecoveryState;
 }
 
 interface PolicySummary {
@@ -94,12 +96,16 @@ interface ScopeDecisionSummary {
   summary: string;
 }
 
-interface SessionCloseRecoveryState {
+export interface SessionCloseRecoveryState {
   branch?: string;
   createdCommit: boolean;
   pushedBranch: boolean;
   failedAction?: HarnessAction;
   failure?: string;
+  failureCategory?: GitHubFailureCategory;
+  retryable?: boolean;
+  recoveryAction?: string;
+  completedActions?: HarnessAction[];
 }
 
 const blockedActions = ["write_retrospective", "update_issue", "commit_changes", "push_branch", "create_pr", "merge_pr", "promote_branch", "close_issue"];
@@ -634,8 +640,20 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
   }
   } catch (error) {
     const failedAction = inferFailedAction(steps);
+    const failureEvidence = isGitHubAction(failedAction)
+      ? classifyGitHubCommandFailure(error)
+      : {
+          category: "command" as const,
+          retryable: false,
+          failure: error instanceof Error ? error.message : "session close command failed",
+          recovery: "inspect the local command failure before retrying; do not classify it as a GitHub API failure"
+        };
     recovery.failedAction = failedAction;
-    recovery.failure = error instanceof Error ? error.message : "session close execution failed";
+    recovery.failure = failureEvidence.failure;
+    recovery.failureCategory = failureEvidence.category;
+    recovery.retryable = failureEvidence.retryable;
+    recovery.recoveryAction = failureEvidence.recovery;
+    recovery.completedActions = steps.filter((step) => step.status === "executed" || step.status === "skipped").map((step) => step.action);
     steps.push({ action: failedAction, status: "blocked", detail: recovery.failure });
     return buildExecutionResult("blocked", steps, recovery);
   }
@@ -1331,8 +1349,13 @@ function buildExecutionResult(
   return {
     status,
     markdown: `${markdown}${buildRecoveryReportSection(recovery)}\n`,
-    steps
+    steps,
+    recovery: recovery?.failure ? recovery : undefined
   };
+}
+
+function isGitHubAction(action: HarnessAction): boolean {
+  return action === "update_issue" || action === "create_pr" || action === "merge_pr" || action === "close_issue";
 }
 
 function buildRecoveryReportSection(recovery?: SessionCloseRecoveryState): string {
@@ -1353,7 +1376,11 @@ function buildRecoveryReportSection(recovery?: SessionCloseRecoveryState): strin
     `- branch: ${recovery.branch ?? "unknown"}`,
     `- created commit: ${recovery.createdCommit ? "yes" : "no"}`,
     `- pushed branch: ${recovery.pushedBranch ? "yes" : "no"}`,
+    `- completed actions: ${(recovery.completedActions ?? []).join(", ") || "none"}`,
+    `- failure category: ${recovery.failureCategory ?? "unknown"}`,
+    `- retryable: ${recovery.retryable ? "yes" : "no"}`,
     `- remaining action: ${remaining}`,
+    `- recovery action: ${recovery.recoveryAction ?? "inspect the failure before retrying"}`,
     `- failure: ${recovery.failure}`
   ].join("\n");
 }
