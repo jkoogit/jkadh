@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { execFileSync } from "node:child_process";
 
-import { approveLoopCondition, beginLoopWorkItemImplementation, buildRollbackReport, buildVerificationInvocation, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverBlockedLoopWorkItemCheckpoint, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, validateWorkItems } from "../src/state/loop-state.ts";
+import { approveLoopCondition, beginLoopWorkItemImplementation, buildLoopOutcomeEvidence, buildRollbackReport, buildVerificationInvocation, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverBlockedLoopWorkItemCheckpoint, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, validateWorkItems } from "../src/state/loop-state.ts";
 
 const workItems = [{
   id: "work_001", title: "foundation", dependencies: [], completionConditions: ["tests pass"],
@@ -91,6 +91,56 @@ test("loop execution verifies ready work item and completes the loop", () => {
   assert.equal(completed.status, "completed");
   assert.equal(completed.workItems[0].verificationEvidence?.[0].status, "passed");
   assert.equal(completed.lease, undefined);
+});
+
+test("completed loop records aggregate outcome evidence", () => {
+  const repo = createGitRepo("completed-outcome");
+  const loop = createLoopRun(repo, {
+    sessionId: "s", taskId: "codex_task_020_001", title: "outcome", objective: "aggregate outcome",
+    workItems: [{ ...workItems[0], expectedResults: ["completed_no_change"], verificationCommands: ["git diff --check"] }],
+    now: new Date("2026-07-25T00:00:00.000Z")
+  });
+  transitionLoop(repo, loop.loopId, "running", new Date("2026-07-25T00:00:10.000Z"));
+  beginLoopWorkItemImplementation(repo, loop.loopId, new Date("2026-07-25T00:00:20.000Z"));
+  completeLoopWorkItemImplementation(repo, loop.loopId, "no source change", new Date("2026-07-25T00:00:30.000Z"));
+  const completed = runNextLoopWorkItem(repo, loop.loopId, new Date("2026-07-25T00:00:40.000Z"));
+  assert.equal(completed.outcomeEvidence?.status, "completed");
+  assert.equal(completed.outcomeEvidence?.stopReason, "all_work_items_terminal");
+  assert.deepEqual(completed.outcomeEvidence?.resultCounts, { completed_no_change: 1 });
+  assert.equal(completed.outcomeEvidence?.totalAttempts, 1);
+  assert.equal(completed.outcomeEvidence?.verificationCount, 1);
+  assert.deepEqual(completed.outcomeEvidence?.unresolvedWorkItemIds, []);
+  assert.equal(listLoopRuns(repo)[0].outcomeEvidence?.resultCounts.completed_no_change, 1);
+  const storedPath = join(repo, ".hcp", "loops", "completed", `${loop.loopId}.json`);
+  const legacy = JSON.parse(readFileSync(storedPath, "utf8"));
+  delete legacy.outcomeEvidence;
+  writeFileSync(storedPath, `${JSON.stringify(legacy, null, 2)}\n`);
+  assert.equal(listLoopRuns(repo)[0].outcomeEvidence?.stopReason, "all_work_items_terminal");
+});
+
+test("blocked loop records retry exhaustion and unresolved work item", () => {
+  const repo = createGitRepo("blocked-outcome");
+  const loop = createLoopRun(repo, {
+    sessionId: "s", taskId: "codex_task_020_001", title: "blocked", objective: "stop repeated failure",
+    workItems: [{ ...workItems[0], verificationCommands: ["npm run check"], retryPolicy: { maxAttempts: 1, retryableErrors: ["verification_failed"] } }]
+  });
+  transitionLoop(repo, loop.loopId, "running");
+  beginLoopWorkItemImplementation(repo, loop.loopId);
+  completeLoopWorkItemImplementation(repo, loop.loopId, "verification will fail");
+  const blocked = runNextLoopWorkItem(repo, loop.loopId);
+  assert.equal(blocked.outcomeEvidence?.status, "blocked");
+  assert.equal(blocked.outcomeEvidence?.stopReason, "retry_exhausted");
+  assert.deepEqual(blocked.outcomeEvidence?.resultCounts, { failed_verification: 1 });
+  assert.deepEqual(blocked.outcomeEvidence?.unresolvedWorkItemIds, ["work_001"]);
+  assert.deepEqual(blocked.outcomeEvidence?.retryExhaustedWorkItemIds, ["work_001"]);
+  assert.equal(blocked.outcomeEvidence?.recordedAt, blocked.updatedAt);
+});
+
+test("active loop does not expose terminal outcome evidence", () => {
+  const repo = createGitRepo("active-outcome");
+  const loop = createLoopRun(repo, { sessionId: "s", taskId: "codex_task_020_001", title: "active", objective: "remain active", workItems });
+  assert.equal(buildLoopOutcomeEvidence(loop), undefined);
+  assert.equal(loop.outcomeEvidence, undefined);
 });
 
 test("analysis revision records changed fields and advances version", () => {
