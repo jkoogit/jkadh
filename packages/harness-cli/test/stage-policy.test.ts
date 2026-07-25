@@ -20,7 +20,8 @@ test("stage policies return structured pass and blocked results", () => {
   });
 
   assert.equal(policiesPassed(blocked), false);
-  assert.deepEqual(blocked.map((result) => result.status), ["pass", "blocked", "pass", "blocked"]);
+  assert.deepEqual(blocked.map((result) => result.status), ["pass", "blocked", "pass", "blocked", "blocked"]);
   assert.equal(blocked[1].policyId, "task-promote.close-evidence");
   assert.deepEqual(blocked[1].evidence, { closeEvidencePassed: false });
+  assert.equal(blocked.every((result) => result.policyVersion === 1), true);
 });

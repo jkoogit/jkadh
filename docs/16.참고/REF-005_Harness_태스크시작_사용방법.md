@@ -181,6 +181,12 @@ s = task start support
 | 쓰기 작업 | 기본 report에서는 `create_issue`, `create_branch` 차단 표시 |
 | 작업 단계 | 준비단계, 구현 대기, 다음 단계 표시 |
 
+실행모드에서 HCP task를 등록할 때 작업범위, 제외범위, 완료조건, 검증방법을 task 상태에 구조화해 함께 저장한다. CLI를 패키지 하위 디렉터리에서 실행해도 Git top-level을 공통 저장소 루트로 해석하므로 Issue·브랜치 생성 뒤 HCP 상태만 다른 디렉터리에 기록되는 부분 완료를 허용하지 않는다. 기존 HCP JSON에서 이 필드가 없는 task는 호환을 위해 계속 읽을 수 있다.
+
+후속 Backlog에서 시작한 태스크는 `--source-backlog <hcpBacklogId>`로 출처를 task에 연결할 수 있다. Issue 사용 또는 생성 뒤 브랜치 생성이 실패하면 실행 결과에 완료 action, 실패 action, HCP 등록 여부와 중복 생성 없이 복구하는 방법을 표시한다. task 등록 시 `task.add` change log와 `task_start` policy version·적용시점 evidence도 함께 남긴다.
+
+Issue와 브랜치 생성은 성공했지만 HCP task 등록이 실패한 경우에도 별도 recovery report를 출력한다. 이 보고는 기존 Issue와 브랜치를 보존하고 `create_issue`·`create_branch`를 재실행하지 않은 채 저장소 루트에서 HCP 등록만 복구하도록 안내한다. 패키지 하위 실행의 전체 task-start 흐름은 임시 Git 저장소 통합 테스트로 검증한다.
+
 ## 7. Harness가 하지 않는 일
 
 `#태스크시작.보고` 또는 CLI report-only 실행은 다음 작업을 하지 않는다.
@@ -315,6 +321,7 @@ node --experimental-strip-types src/cli.ts task start `
 | 2026-07-12 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | 빈 `#태스크시작` 입력 시 주문서 초안 출력 흐름 반영 |
 | 2026-07-13 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크시작` 실행모드와 브랜치 생성/checkout 기준 추가 |
 | 2026-07-14 | [#84](https://github.com/jkoogit/jkadh/issues/84) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크시작` 결과의 작업 단계, 구현 대기 상태, 자연어 실행 게이트 기준 보강 |
+| 2026-07-25 | [#127](https://github.com/jkoogit/jkadh/issues/127) | Codex | GPT-5 | CTO | jk / Codex | Update | 구조화 task 경계 저장과 패키지 하위 실행의 공통 저장소 루트 기준 반영 |
 | 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Update | `#태스크처리` 선행조건 검증과 구현 단계 실행 경계 반영 |
 
 [목차로 이동](#목차)

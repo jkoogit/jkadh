@@ -75,6 +75,7 @@ test("task promote HCP policy blocks missing close evidence and dev merge", () =
     verificationResult: "npm test passed",
     enforceHcpPolicies: true,
     pullRequestLinked: true,
+    pullRequestMergedToDev: false,
     devContainsTarget: false,
     branchStatus: [
       { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true },
@@ -85,6 +86,7 @@ test("task promote HCP policy blocks missing close evidence and dev merge", () =
   assert.equal(report.status, "blocked");
   assert.match(report.markdown, /task-promote.close-evidence=blocked/);
   assert.match(report.markdown, /task-promote.dev-merge=blocked/);
+  assert.match(report.markdown, /task-promote.pr-dev-merge=blocked/);
 });
 
 test("task promote HCP policy accepts stored evidence PR and dev merge", () => {
@@ -104,6 +106,7 @@ test("task promote HCP policy accepts stored evidence PR and dev merge", () => {
       recordedAt: "2026-07-21T00:00:00.000Z"
     },
     pullRequestLinked: true,
+    pullRequestMergedToDev: true,
     devContainsTarget: true,
     branchStatus: [
       { branch: "stg", currentCommit: "base", targetCommit: "abc123", fastForward: true },

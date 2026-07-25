@@ -35,7 +35,9 @@
 
 `#태스크승급`은 PR을 생성하거나 머지하는 단계가 아니다. 이미 `dev`에 머지된 PR 또는 지정 커밋을 기준으로 `stg`, `main` 대상 브랜치가 fast-forward 가능한지 확인하고, 실행모드에서 대상 브랜치를 갱신한다.
 
-HCP 실행모드는 단계별 policy registry의 공통 `PolicyResult`를 사용한다. 승급하려는 태스크가 `closed`이고, 성공한 `closeEvidence`와 연결 PR이 있으며, `origin/dev`가 대상 커밋을 포함할 때만 승급을 허용한다. CLI에 전달한 `--verification` 문자열은 보조 설명이며 이 근거들을 대체하지 않는다.
+HCP 실행모드는 단계별 policy registry의 공통 `PolicyResult`를 사용한다. 각 결과에는 `policyVersion`을 기록하고 HCP process evidence의 `recordedAt`과 결합해 어떤 정책 버전이 언제 적용됐는지 재현한다. 승급하려는 태스크가 `closed`이고, 성공한 `closeEvidence`와 연결 PR이 있으며, 해당 PR이 `dev` 대상으로 `MERGED` 상태이고 PR의 `mergeCommit`이 대상 커밋과 일치하며, `origin/dev`가 그 커밋을 포함할 때만 승급을 허용한다. CLI에 전달한 `--verification` 문자열은 보조 설명이며 이 근거들을 대체하지 않는다.
+
+동일한 registry 평가와 적용 evidence 기준은 `task_start`, `task_process`, `task_close`, `task_promote`, `session_close` 전 단계에 적용한다. 실행 시 stage, task ID, 결과, policy ID·version·evidence와 평가시각을 HCP session의 lifecycle policy evidence에 저장한다.
 
 ## 2. 사용할 때
 
@@ -123,5 +125,6 @@ Issue 종료는 `#세션정리`에서만 가능하다. PR 생성과 머지는 `#
 | 2026-07-13 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Create | Harness `#태스크승급` 사용방법 문서 작성 |
 | 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | 승급 완료 후 다음 작업 리뷰와 추천 다음턴 프롬프트 기준 추가 |
 | 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Update | 단계별 policy registry와 HCP close evidence, PR, dev merge 대조 기준 추가 |
+| 2026-07-25 | [#127](https://github.com/jkoogit/jkadh/issues/127) | Codex | GPT-5 | CTO | jk / Codex | Update | policy version 이력과 PR merge commit·dev target commit 직접 관계 검증 반영 |
 
 [목차로 이동](#목차)

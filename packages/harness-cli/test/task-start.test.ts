@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildTaskStartReport, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "../src/flows/task-start.ts";
+import { buildTaskStartReport, buildTaskStartStateRegistrationRecovery, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "../src/flows/task-start.ts";
 
 test("task start arg parser accepts issue and required planning fields", () => {
   const input = parseTaskStartArgs([
@@ -239,4 +239,41 @@ test("task start execution creates an issue before creating a branch when issue 
   assert.deepEqual(result.steps.map((step) => step.action), ["create_issue", "create_branch"]);
   assert.equal(calls[0], "gh issue create --title Harness cleanup --body ## Scope\n\nHarness cleanup\n\n## Out Of Scope\n\nPR merge\n\n## Completion\n\nbranch is created\n\n## Verification\n\nnpm test");
   assert.equal(calls[1], "git switch -c task_codex/070-harness-cleanup origin/main");
+});
+
+test("task start reports partial recovery without duplicating an existing issue", () => {
+  const result = executeTaskStart({
+    issueNumber: 127,
+    scope: "scope",
+    outOfScope: "excluded",
+    completionCriteria: "complete",
+    verificationMethod: "test",
+    execution: { enabled: true, startPoint: "origin/main", branchName: "task_codex/127-test" }
+  }, "repo", {
+    run(command) {
+      if (command === "git") throw new Error("branch exists");
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.markdown, /## Recovery/);
+  assert.match(result.markdown, /create_issue=using existing issue #127/);
+  assert.match(result.markdown, /HCP task registration: not completed/);
+});
+
+test("task start reports recovery after branch creation when HCP registration fails", () => {
+  const markdown = buildTaskStartStateRegistrationRecovery({
+    status: "executed",
+    markdown: "",
+    steps: [
+      { action: "create_issue", status: "skipped", detail: "using existing issue #127" },
+      { action: "create_branch", status: "executed", detail: "checked out task_codex/127-test from origin/main" }
+    ]
+  }, "codex_ses_019_001", new Error("session not found"));
+
+  assert.match(markdown, /using existing issue #127/);
+  assert.match(markdown, /checked out task_codex\/127-test/);
+  assert.match(markdown, /HCP task registration: failed/);
+  assert.match(markdown, /without rerunning create_issue or create_branch/);
 });

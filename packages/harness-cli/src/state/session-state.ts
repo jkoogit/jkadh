@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { PolicyRemediationIteration, PolicyRemediationLoopStatus } from "../gates/policy-remediation-loop.ts";
+import type { HarnessStage, PolicyResult } from "../gates/stage-policy.ts";
 
 export type HcpSessionStatus = "active" | "closing" | "complete" | "archived" | "blocked" | "failed";
 export type HcpTaskStatus = "active" | "closed" | "promoted" | "blocked" | "failed";
@@ -53,6 +54,10 @@ export interface HcpBacklogItem {
   status: "open" | "closed";
   path?: string;
   note?: string;
+  resolvedByTaskId?: string;
+  resolvedByIssueNumber?: number;
+  resolutionEvidence?: string;
+  resolvedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -62,6 +67,14 @@ export interface HcpChangeLogEntry {
   action: string;
   targetId: string;
   detail: string;
+}
+
+export interface HcpLifecyclePolicyEvidence {
+  stage: HarnessStage;
+  taskId?: string;
+  outcome: "passed" | "blocked";
+  evaluatedPolicies: PolicyResult[];
+  recordedAt: string;
 }
 
 export interface HcpTaskCloseEvidence {
@@ -87,6 +100,11 @@ export interface HcpTaskState {
   status: HcpTaskStatus;
   issueNumber?: number;
   branchName?: string;
+  scope?: string;
+  outOfScope?: string;
+  completionCriteria?: string;
+  verificationMethod?: string;
+  sourceBacklogIds?: string[];
   pullRequest?: HcpLinkedPullRequest;
   closeEvidence?: HcpTaskCloseEvidence;
   processEvidence?: HcpTaskProcessEvidence[];
@@ -144,6 +162,7 @@ export interface HcpSessionState {
   backlogItems: HcpBacklogItem[];
   tasks: HcpTaskState[];
   changeLog: HcpChangeLogEntry[];
+  lifecyclePolicyEvidence?: HcpLifecyclePolicyEvidence[];
   createdAt: string;
   updatedAt: string;
   closingStartedAt?: string;
@@ -173,6 +192,11 @@ export interface AddHcpTaskInput {
   taskName: string;
   issueNumber?: number;
   branchName?: string;
+  scope?: string;
+  outOfScope?: string;
+  completionCriteria?: string;
+  verificationMethod?: string;
+  sourceBacklogIds?: string[];
   now?: Date;
 }
 
@@ -187,6 +211,17 @@ export interface UpdateHcpTaskBranchInput {
   sessionId: string;
   taskId: string;
   branchName: string;
+  now?: Date;
+}
+
+export interface UpdateHcpTaskBoundaryInput {
+  sessionId: string;
+  taskId: string;
+  scope: string;
+  outOfScope: string;
+  completionCriteria: string;
+  verificationMethod: string;
+  sourceBacklogIds?: string[];
   now?: Date;
 }
 
@@ -381,6 +416,25 @@ export function updateHcpTaskBranch(repoRoot: string, input: UpdateHcpTaskBranch
   return task;
 }
 
+export function updateHcpTaskBoundary(repoRoot: string, input: UpdateHcpTaskBoundaryInput): HcpTaskState {
+  const session = readSessionById(repoRoot, input.sessionId);
+  const task = resolveTask(session, input.taskId, "active");
+  const timestamp = (input.now ?? new Date()).toISOString();
+  task.scope = input.scope;
+  task.outOfScope = input.outOfScope;
+  task.completionCriteria = input.completionCriteria;
+  task.verificationMethod = input.verificationMethod;
+  if (input.sourceBacklogIds) task.sourceBacklogIds = [...new Set(input.sourceBacklogIds)];
+  task.updatedAt = timestamp;
+  session.updatedAt = timestamp;
+  if (!session.changeLog.some((entry) => entry.action === "task.add" && entry.targetId === task.taskId)) {
+    appendChange(session, task.createdAt, "task.add", task.taskId, task.taskName);
+  }
+  appendChange(session, timestamp, "task.update_boundary", task.taskId, "scope, outOfScope, completionCriteria, verificationMethod, sourceBacklogIds");
+  writeSessionState(repoRoot, session);
+  return task;
+}
+
 export function updateHcpTaskPullRequest(repoRoot: string, input: UpdateHcpTaskPullRequestInput): HcpTaskState {
   const session = readSessionById(repoRoot, input.sessionId);
   const task = input.taskId
@@ -483,6 +537,11 @@ export function addHcpTask(repoRoot: string, input: AddHcpTaskInput): HcpTaskSta
     status: "active",
     issueNumber: input.issueNumber,
     branchName: input.branchName,
+    scope: input.scope,
+    outOfScope: input.outOfScope,
+    completionCriteria: input.completionCriteria,
+    verificationMethod: input.verificationMethod,
+    sourceBacklogIds: input.sourceBacklogIds,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -494,6 +553,7 @@ export function addHcpTask(repoRoot: string, input: AddHcpTaskInput): HcpTaskSta
     };
   }
   session.tasks.push(task);
+  appendChange(session, timestamp, "task.add", task.taskId, task.taskName);
   session.updatedAt = timestamp;
   writeSessionState(repoRoot, session);
   return task;
@@ -544,6 +604,63 @@ export function recordHcpTaskProcessEvidence(repoRoot: string, input: RecordHcpT
   appendChange(session, timestamp, "task.record_process_evidence", task.taskId, `${input.status}: iterations=${input.iterations.length}`);
   writeSessionState(repoRoot, session);
   return task;
+}
+
+export function resolveHcpSourceBacklogs(repoRoot: string, input: {
+  sourceBacklogIds: string[];
+  taskId: string;
+  issueNumber?: number;
+  verificationResult: string;
+  now?: Date;
+}): HcpBacklogItem[] {
+  const ids = new Set(input.sourceBacklogIds);
+  if (ids.size === 0) return [];
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const resolved: HcpBacklogItem[] = [];
+  for (const session of listSessionStates(repoRoot)) {
+    let changed = false;
+    for (const item of session.backlogItems.filter((candidate) => ids.has(candidate.hcpBacklogId))) {
+      item.status = "closed";
+      item.resolvedByTaskId = input.taskId;
+      item.resolvedByIssueNumber = input.issueNumber;
+      item.resolutionEvidence = input.verificationResult;
+      item.resolvedAt = timestamp;
+      item.updatedAt = timestamp;
+      appendChange(session, timestamp, "backlog.resolve", item.hcpBacklogId, `${input.taskId}; issue #${input.issueNumber ?? ""}; ${input.verificationResult}`);
+      resolved.push(item);
+      changed = true;
+    }
+    if (changed) {
+      session.updatedAt = timestamp;
+      writeSessionState(repoRoot, session);
+    }
+  }
+  const missing = [...ids].filter((id) => !resolved.some((item) => item.hcpBacklogId === id));
+  if (missing.length) throw new Error(`Source HCP backlog not found: ${missing.join(", ")}`);
+  return resolved;
+}
+
+export function recordHcpLifecyclePolicyEvidence(repoRoot: string, input: {
+  sessionId: string;
+  taskId?: string;
+  stage: HarnessStage;
+  outcome: "passed" | "blocked";
+  evaluatedPolicies: PolicyResult[];
+  now?: Date;
+}): HcpSessionState {
+  const session = readSessionById(repoRoot, input.sessionId);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  session.lifecyclePolicyEvidence = [...(session.lifecyclePolicyEvidence ?? []), {
+    stage: input.stage,
+    taskId: input.taskId,
+    outcome: input.outcome,
+    evaluatedPolicies: input.evaluatedPolicies,
+    recordedAt: timestamp
+  }];
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "policy.evaluate", input.taskId ?? session.sessionId, `${input.stage}:${input.outcome}`);
+  writeSessionState(repoRoot, session);
+  return session;
 }
 
 export function getHcpTaskPhase(task: HcpTaskState): HcpTaskPhase {

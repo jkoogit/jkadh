@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
+import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 
 export interface TaskStartInput {
@@ -13,6 +14,7 @@ export interface TaskStartInput {
   outOfScope?: string;
   completionCriteria?: string;
   verificationMethod?: string;
+  sourceBacklogIds?: string[];
   execution?: TaskStartExecutionOptions;
 }
 
@@ -32,6 +34,7 @@ export interface TaskStartReport {
     missing: string[];
     recommendedBranchName?: string;
     suggestedOrder?: string;
+    policyResults: PolicyResult[];
   };
   blockedActions: string[];
 }
@@ -111,6 +114,10 @@ export function parseTaskStartArgs(args: string[]): TaskStartInput {
       input.verificationMethod = value;
       index += 1;
     }
+    if (key === "--source-backlog") {
+      input.sourceBacklogIds = [...(input.sourceBacklogIds ?? []), ...value.split(",").map((item) => item.trim()).filter(Boolean)];
+      index += 1;
+    }
     if (key === "--branch") {
       execution.branchName = value;
       index += 1;
@@ -155,11 +162,16 @@ export function parseTaskStartBlock(block: string): TaskStartInput {
 
 export function buildTaskStartReport(input: TaskStartInput): TaskStartReport {
   const missing = missingFields(input);
+  const policyResults = evaluateStagePolicies("task_start", {
+    identifier: input.issueNumber ? `issue:${input.issueNumber}` : input.workOrderId,
+    scope: input.scope,
+    completionCriteria: input.completionCriteria
+  });
   const suggestedOrder = missing.length > 0 ? buildSuggestedTaskStartOrder(input) : undefined;
   const recommendedBranchName = input.issueNumber && input.scope
     ? `task_codex/${String(input.issueNumber).padStart(3, "0")}-${slugifyScope(input.scope)}`
     : undefined;
-  const status = missing.length === 0 ? "ready" : "blocked";
+  const status = missing.length === 0 && policiesPassed(policyResults) ? "ready" : "blocked";
 
   const report = createReportDocument({
     title: "Harness CLI task start",
@@ -233,7 +245,8 @@ export function buildTaskStartReport(input: TaskStartInput): TaskStartReport {
       input,
       missing,
       recommendedBranchName,
-      suggestedOrder
+      suggestedOrder,
+      policyResults
     },
     blockedActions
   };
@@ -293,13 +306,41 @@ export function executeTaskStart(input: TaskStartInput, cwd: string, runner: Com
       return buildExecutionResult("blocked", steps);
     }
 
-    steps.push(runCreateBranchStep({
-      branchName,
-      startPoint: input.execution.startPoint
-    }, cwd, runner));
+    try {
+      steps.push(runCreateBranchStep({
+        branchName,
+        startPoint: input.execution.startPoint
+      }, cwd, runner));
+    } catch (error) {
+      steps.push({
+        action: "create_branch",
+        status: "blocked",
+        detail: error instanceof Error ? error.message : "branch creation failed"
+      });
+      return buildExecutionResult("blocked", steps);
+    }
   }
 
   return buildExecutionResult("executed", steps);
+}
+
+export function buildTaskStartStateRegistrationRecovery(
+  execution: TaskStartExecutionResult,
+  sessionId: string | undefined,
+  error: unknown
+): string {
+  const issue = execution.steps.find((step) => step.action === "create_issue");
+  const branch = execution.steps.find((step) => step.action === "create_branch");
+  return [
+    "# Task start HCP registration recovery",
+    "",
+    `- Issue: ${issue?.detail ?? "unknown"}`,
+    `- branch: ${branch?.detail ?? "unknown"}`,
+    `- HCP session: ${sessionId ?? "unresolved"}`,
+    "- HCP task registration: failed",
+    `- failure: ${error instanceof Error ? error.message : "HCP task state registration failed"}`,
+    "- recovery: keep the existing Issue and branch; retry HCP task registration against the repository root without rerunning create_issue or create_branch"
+  ].join("\n") + "\n";
 }
 
 function buildSuggestedTaskStartOrder(input: TaskStartInput): string {
@@ -490,7 +531,16 @@ function buildExecutionResult(status: TaskStartExecutionResult["status"], steps:
     "",
     "## Steps",
     "",
-    ...(steps.length === 0 ? ["- [skipped] execution: not requested"] : steps.map((step) => `- [${step.status}] ${step.action}: ${step.detail}`))
+    ...(steps.length === 0 ? ["- [skipped] execution: not requested"] : steps.map((step) => `- [${step.status}] ${step.action}: ${step.detail}`)),
+    ...(status === "blocked" && steps.some((step) => step.status !== "blocked") ? [
+      "",
+      "## Recovery",
+      "",
+      `- completed actions: ${steps.filter((step) => step.status === "executed" || step.status === "skipped").map((step) => `${step.action}=${step.detail}`).join("; ")}`,
+      `- failed action: ${steps.find((step) => step.status === "blocked")?.action ?? "unknown"}`,
+      "- HCP task registration: not completed",
+      "- next action: preserve the created Issue/branch and retry only the missing state registration without creating duplicates"
+    ] : [])
   ].join("\n");
 
   return {

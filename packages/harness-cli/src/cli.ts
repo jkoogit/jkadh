@@ -10,6 +10,8 @@ import { hasBacklogIndexEntry, parseBacklogIndex } from "./docs/backlog-index.ts
 import { parseRetrospectiveDetail } from "./docs/retrospective-detail.ts";
 import { parseLatestRetrospective } from "./docs/retrospective-index.ts";
 import { readInternalGitStatus } from "./git/git-status.ts";
+import { resolveRepositoryRoot } from "./git/repo-root.ts";
+import { pullRequestMergeMatchesDevTarget } from "./github/pr-dev-relationship.ts";
 import { readGitHubOpenStatus } from "./github/github-status.ts";
 import { runDbCheck } from "./db/db-check.ts";
 import { runDbMigrate } from "./db/db-migrate.ts";
@@ -22,7 +24,7 @@ import { buildSessionStartReport } from "./flows/session-start.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
 import { buildTaskProcessReport, parseTaskProcessArgs, type TaskProcessInput } from "./flows/task-process.ts";
 import { buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs, readTaskPromoteBranchStatus } from "./flows/task-promote.ts";
-import { buildTaskStartReport, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
+import { buildTaskStartReport, buildTaskStartStateRegistrationRecovery, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
 import { checkProjectAccess, loadProjectProfile } from "./projects/project-profile.ts";
 import { createReportDocument } from "./reports/create-report.ts";
 import { checkRequiredEnv } from "./security/env-check.ts";
@@ -40,7 +42,9 @@ import {
   readSessionById,
   linkHcpTaskLoop,
   recordHcpTaskProcessEvidence,
+  recordHcpLifecyclePolicyEvidence,
   resolveActiveSession,
+  resolveHcpSourceBacklogs,
   transitionHcpSessionStatus,
   transitionHcpTaskPhase,
   updateHcpTaskBranch,
@@ -157,26 +161,33 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "session" && command === "close") {
+    const repoRoot = resolveGitRoot(process.cwd());
     const input = enrichSessionCloseInputWithAutoStatus(
-      enrichSessionCloseInputWithHcpState(parseSessionCloseArgs(argv.slice(2)), process.cwd()),
-      process.cwd()
+      enrichSessionCloseInputWithHcpState(parseSessionCloseArgs(argv.slice(2)), repoRoot),
+      repoRoot
     );
     const report = buildSessionCloseReport(input);
+    if (input.execution?.enabled && input.sessionId) recordHcpLifecyclePolicyEvidence(repoRoot, {
+      sessionId: input.sessionId,
+      stage: "session_close",
+      outcome: report.status === "ready" ? "passed" : "blocked",
+      evaluatedPolicies: report.json.policyResults
+    });
     console.log(report.markdown);
     if (input.execution?.enabled) {
-      const sessionState = beginSessionCloseState(process.cwd(), input.sessionId, input.agentId);
+      const sessionState = beginSessionCloseState(repoRoot, input.sessionId, input.agentId);
       if (sessionState.status === "blocked") {
-        console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), sessionState.detail));
+        console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), sessionState.detail));
         return 2;
       }
       const executionInput = sessionState.sessionId
-        ? enrichSessionCloseInputWithHcpState({ ...input, sessionId: sessionState.sessionId }, process.cwd())
+        ? enrichSessionCloseInputWithHcpState({ ...input, sessionId: sessionState.sessionId }, repoRoot)
         : input;
-      const execution = executeSessionClose(executionInput, process.cwd());
+      const execution = executeSessionClose(executionInput, repoRoot);
       console.log(execution.markdown);
-      completeSessionCloseState(process.cwd(), sessionState.sessionId, execution.status);
+      completeSessionCloseState(repoRoot, sessionState.sessionId, execution.status);
       if (sessionState.sessionId) {
-        console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), sessionState.sessionId)));
+        console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, sessionState.sessionId)));
       }
       return execution.status === "executed" ? 0 : 2;
     }
@@ -184,6 +195,7 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "task" && command === "start") {
+    const repoRoot = resolveGitRoot(process.cwd());
     const taskStartArgs = argv.slice(2);
     const blockIndex = taskStartArgs.indexOf("--block");
     const input = blockIndex >= 0 && taskStartArgs[blockIndex + 1]
@@ -192,23 +204,43 @@ async function run(argv: string[]): Promise<number> {
     const report = buildTaskStartReport(input);
     console.log(report.markdown);
     if (input.execution?.enabled) {
-      const execution = executeTaskStart(input, process.cwd());
+      const evidenceSessionId = input.sessionId ?? resolveActiveSession(repoRoot, undefined, input.agentId).sessionId;
+      const execution = executeTaskStart(input, repoRoot);
       console.log(execution.markdown);
+      if (execution.status !== "executed") recordHcpLifecyclePolicyEvidence(repoRoot, {
+        sessionId: evidenceSessionId,
+        stage: "task_start",
+        outcome: "blocked",
+        evaluatedPolicies: report.json.policyResults
+      });
       if (execution.status === "executed") {
         try {
-          const task = addHcpTask(process.cwd(), {
+          const task = addHcpTask(repoRoot, {
             agentId: input.agentId,
             sessionId: input.sessionId,
             taskName: input.taskName ?? input.scope ?? input.workOrderId ?? "Harness task",
             issueNumber: input.issueNumber ?? parseIssueNumberFromText(execution.markdown),
-            branchName: parseBranchNameFromText(execution.markdown)
+            branchName: parseBranchNameFromText(execution.markdown),
+            scope: input.scope,
+            outOfScope: input.outOfScope,
+            completionCriteria: input.completionCriteria,
+            verificationMethod: input.verificationMethod
+            ,sourceBacklogIds: input.sourceBacklogIds
           });
           console.log(buildHcpStateMarkdown(
-            buildHcpStateSummary(process.cwd(), input.sessionId),
+            buildHcpStateSummary(repoRoot, input.sessionId),
             `작업 단계: 준비단계 완료; 구현상태: 구현 대기; registered task: ${task.taskId}`
           ));
+          recordHcpLifecyclePolicyEvidence(repoRoot, {
+            sessionId: evidenceSessionId,
+            taskId: task.taskId,
+            stage: "task_start",
+            outcome: "passed",
+            evaluatedPolicies: report.json.policyResults
+          });
         } catch (error) {
-          console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), error instanceof Error ? error.message : "HCP task state registration failed"));
+          console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), error instanceof Error ? error.message : "HCP task state registration failed"));
+          console.log(buildTaskStartStateRegistrationRecovery(execution, input.sessionId, error));
           return 2;
         }
       }
@@ -231,6 +263,13 @@ async function run(argv: string[]): Promise<number> {
           iterations: report.json.remediation.iterations,
           nextAction: report.json.remediation.nextAction
         });
+        recordHcpLifecyclePolicyEvidence(repoRoot, {
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          stage: "task_process",
+          outcome: report.status === "ready" ? "passed" : "blocked",
+          evaluatedPolicies: report.json.policyResults
+        });
         if (report.status === "ready") transitionHcpTaskPhase(repoRoot, input.sessionId, input.taskId, "implementing");
       }
       console.log(report.status === "ready"
@@ -241,26 +280,27 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "task" && command === "close") {
+    const repoRoot = resolveGitRoot(process.cwd());
     const taskCloseArgs = argv.slice(2);
     const blockIndex = taskCloseArgs.indexOf("--block");
     const input = blockIndex >= 0 && taskCloseArgs[blockIndex + 1]
       ? parseTaskCloseBlock(taskCloseArgs[blockIndex + 1])
       : parseTaskCloseArgs(taskCloseArgs);
     if (input.execution?.enabled) {
-      const taskSelection = applyTaskIdFromHcpState(input, "active", "#태스크정리");
+      const taskSelection = applyTaskIdFromHcpState(input, "active", "#태스크정리", repoRoot);
       if (taskSelection.status === "blocked") {
         console.log(taskSelection.markdown);
         return 2;
       }
-      const selectedTask = readSessionById(resolveGitRoot(process.cwd()), input.sessionId!).tasks.find((task) => task.taskId === input.taskId);
+      const selectedTask = readSessionById(repoRoot, input.sessionId!).tasks.find((task) => task.taskId === input.taskId);
       if (!selectedTask) throw new Error(`HCP task not found: ${input.taskId}`);
       const closeReadiness = evaluateHcpTaskCloseReadiness(selectedTask);
       if (!closeReadiness.ready) {
         console.log(`# Task close blocked by completion discovery\n\n${closeReadiness.reasons.map((reason) => `- ${reason}`).join("\n")}\n`);
         return 2;
       }
-      const loopBlockers = listLoopRuns(resolveGitRoot(process.cwd()), input.taskId, true).filter((loop) => !["completed", "deleted"].includes(loop.status));
-      const deletedRequired = listLoopRuns(resolveGitRoot(process.cwd()), input.taskId, true).filter((loop) => loop.status === "deleted" && loop.required && !loop.deletion?.replacementLoopId && !loop.deletion?.exclusionApproved);
+      const loopBlockers = listLoopRuns(repoRoot, input.taskId, true).filter((loop) => !["completed", "deleted"].includes(loop.status));
+      const deletedRequired = listLoopRuns(repoRoot, input.taskId, true).filter((loop) => loop.status === "deleted" && loop.required && !loop.deletion?.replacementLoopId && !loop.deletion?.exclusionApproved);
       if (loopBlockers.length || deletedRequired.length) {
         console.log(`# Task close blocked by loops\n\n${[...loopBlockers, ...deletedRequired].map((loop) => `- ${loop.loopId}: ${loop.status}`).join("\n")}\n`);
         return 2;
@@ -268,15 +308,22 @@ async function run(argv: string[]): Promise<number> {
     }
     const report = buildTaskCloseReport({
       ...input,
-      gitSummary: readTaskCloseGitSummary(process.cwd())
+      gitSummary: readTaskCloseGitSummary(repoRoot)
     });
     console.log(report.markdown);
     if (input.execution?.enabled) {
-      const execution = executeTaskClose(input, process.cwd());
+      if (input.sessionId) recordHcpLifecyclePolicyEvidence(repoRoot, {
+        sessionId: input.sessionId,
+        taskId: input.taskId,
+        stage: "task_close",
+        outcome: report.status === "ready" ? "passed" : "blocked",
+        evaluatedPolicies: report.json.policyResults
+      });
+      const execution = executeTaskClose(input, repoRoot);
       console.log(execution.markdown);
       if (execution.status === "executed") {
         try {
-          const task = updateHcpTask(process.cwd(), {
+          const task = updateHcpTask(repoRoot, {
             agentId: input.agentId,
             sessionId: input.sessionId,
             taskId: input.taskId,
@@ -293,9 +340,15 @@ async function run(argv: string[]): Promise<number> {
               remainingWork: input.remainingWork ?? ""
             }
           });
-          console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), `closed task: ${task.taskId}`));
+          if (task.sourceBacklogIds?.length) resolveHcpSourceBacklogs(repoRoot, {
+            sourceBacklogIds: task.sourceBacklogIds,
+            taskId: task.taskId,
+            issueNumber: task.issueNumber,
+            verificationResult: input.verificationResult ?? ""
+          });
+          console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), `closed task: ${task.taskId}`));
         } catch (error) {
-          console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), error instanceof Error ? error.message : "HCP task close state update failed"));
+          console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), error instanceof Error ? error.message : "HCP task close state update failed"));
           return 2;
         }
       }
@@ -305,9 +358,10 @@ async function run(argv: string[]): Promise<number> {
   }
 
   if (scope === "task" && command === "promote") {
+    const repoRoot = resolveGitRoot(process.cwd());
     const input = parseTaskPromoteArgs(argv.slice(2));
     if (input.execution?.enabled) {
-      const taskSelection = applyTaskIdFromHcpState(input, "closed", "#태스크승급");
+      const taskSelection = applyTaskIdFromHcpState(input, "closed", "#태스크승급", repoRoot);
       if (taskSelection.status === "blocked") {
         console.log(taskSelection.markdown);
         return 2;
@@ -316,27 +370,34 @@ async function run(argv: string[]): Promise<number> {
     const reportInput = {
       ...input,
       ...(input.execution?.enabled
-        ? readTaskPromoteHcpPolicyInput(process.cwd(), input.sessionId, input.taskId, input.targetCommit)
+        ? readTaskPromoteHcpPolicyInput(repoRoot, input.sessionId, input.taskId, input.targetCommit)
         : {}),
-      branchStatus: readTaskPromoteBranchStatus(input, process.cwd())
+      branchStatus: readTaskPromoteBranchStatus(input, repoRoot)
     };
     const report = buildTaskPromoteReport(reportInput);
     console.log(report.markdown);
     if (input.execution?.enabled) {
-      const execution = executeTaskPromote(reportInput, process.cwd());
+      if (input.sessionId) recordHcpLifecyclePolicyEvidence(repoRoot, {
+        sessionId: input.sessionId,
+        taskId: input.taskId,
+        stage: "task_promote",
+        outcome: report.status === "ready" ? "passed" : "blocked",
+        evaluatedPolicies: report.json.policyResults
+      });
+      const execution = executeTaskPromote(reportInput, repoRoot);
       console.log(execution.markdown);
       if (execution.status === "executed") {
         try {
-          const task = updateHcpTask(process.cwd(), {
+          const task = updateHcpTask(repoRoot, {
             agentId: input.agentId,
             sessionId: input.sessionId,
             taskId: input.taskId,
             expectedStatus: "closed",
             status: "promoted"
           });
-          console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), `promoted task: ${task.taskId}`));
+          console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), `promoted task: ${task.taskId}`));
         } catch (error) {
-          console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), input.sessionId), error instanceof Error ? error.message : "HCP task promote state update failed"));
+          console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), error instanceof Error ? error.message : "HCP task promote state update failed"));
           return 2;
         }
       }
@@ -705,76 +766,77 @@ function completeSessionCloseState(cwd: string, sessionId: string | undefined, e
 function runHcpCommand(command: string | undefined, args: string[]): number {
   const [target, action] = [command, args[0]];
   const options = parseKeyValueArgs(args.slice(1));
+  const repoRoot = resolveGitRoot(process.cwd());
   try {
     if (target === "session" && action === "update") {
-      const session = updateHcpSession(process.cwd(), {
+      const session = updateHcpSession(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         sessionName: options["session-name"],
         linkedIssueNumber: options.issue ? Number(options.issue.replace(/^#/, "")) : undefined,
         linkedIssueUrl: options["issue-url"]
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), session.sessionId), `updated session: ${session.sessionId}`));
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, session.sessionId), `updated session: ${session.sessionId}`));
       return 0;
     }
     if (target === "task" && action === "update") {
-      const task = updateHcpTaskTitle(process.cwd(), {
+      const task = updateHcpTaskTitle(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         taskId: requiredOption(options, "task-id"),
         taskName: requiredOption(options, "task-name")
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), options["session-id"]), `updated task: ${task.taskId}`));
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `updated task: ${task.taskId}`));
       return 0;
     }
     if (target === "branch" && action === "update") {
-      const task = updateHcpTaskBranch(process.cwd(), {
+      const task = updateHcpTaskBranch(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         taskId: requiredOption(options, "task-id"),
         branchName: requiredOption(options, "branch-name")
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), options["session-id"]), `updated branch: ${task.taskId} ${task.branchName ?? ""}`));
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `updated branch: ${task.taskId} ${task.branchName ?? ""}`));
       return 0;
     }
     if (target === "issue" && action === "update") {
       const issueNumber = Number(requiredOption(options, "issue").replace(/^#/, ""));
       const title = options.title;
       if (title && !options["state-only"]) {
-        runExternal("gh", ["issue", "edit", String(issueNumber), "--title", title], process.cwd());
+        runExternal("gh", ["issue", "edit", String(issueNumber), "--title", title], repoRoot);
       }
-      const session = updateHcpSession(process.cwd(), {
+      const session = updateHcpSession(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         linkedIssueNumber: issueNumber,
         linkedIssueTitle: title
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), session.sessionId), `updated issue: #${issueNumber}`));
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, session.sessionId), `updated issue: #${issueNumber}`));
       return 0;
     }
     if (target === "pr" && action === "update") {
       const prNumber = Number(requiredOption(options, "pr").replace(/^#/, ""));
       const title = options.title;
       if (title && !options["state-only"]) {
-        runExternal("gh", ["pr", "edit", String(prNumber), "--title", title], process.cwd());
+        runExternal("gh", ["pr", "edit", String(prNumber), "--title", title], repoRoot);
       }
-      const task = updateHcpTaskPullRequest(process.cwd(), {
+      const task = updateHcpTaskPullRequest(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         taskId: options["task-id"],
         pullRequestNumber: prNumber,
         pullRequestTitle: title
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), options["session-id"]), `updated pr: ${task.taskId} #${prNumber}`));
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `updated pr: ${task.taskId} #${prNumber}`));
       return 0;
     }
     if (target === "task" && action === "delete") {
-      const task = deleteHcpTask(process.cwd(), {
+      const task = deleteHcpTask(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         taskId: requiredOption(options, "task-id"),
         reason: options.reason
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), options["session-id"]), `deleted task: ${task.taskId}`));
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `deleted task: ${task.taskId}`));
       return 0;
     }
     if (target === "backlog" && action === "add") {
       if (options.document || !options["session-id"]) {
-        const result = createBacklogDocument(process.cwd(), {
+        const result = createBacklogDocument(repoRoot, {
           title: requiredOption(options, "title"),
           status: options.status,
           type: options.type,
@@ -802,7 +864,7 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
         ].join("\n") + "\n");
         return 0;
       }
-      const item = addHcpBacklog(process.cwd(), {
+      const item = addHcpBacklog(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         title: requiredOption(options, "title"),
         backlogId: options["backlog-id"],
@@ -810,13 +872,13 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
         note: options.note
       });
       console.log(buildHcpStateMarkdown(
-        buildHcpStateSummary(process.cwd(), options["session-id"]),
-        `added backlog: ${item.hcpBacklogId}; ${buildBacklogIndexSyncDetail(process.cwd(), item)}`
+        buildHcpStateSummary(repoRoot, options["session-id"]),
+        `added backlog: ${item.hcpBacklogId}; ${buildBacklogIndexSyncDetail(repoRoot, item)}`
       ));
       return 0;
     }
     if (target === "backlog" && action === "update") {
-      const item = updateHcpBacklog(process.cwd(), {
+      const item = updateHcpBacklog(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         hcpBacklogId: requiredOption(options, "hcp-backlog-id"),
         title: options.title,
@@ -825,20 +887,20 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
         path: options.path,
         note: options.note
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), options["session-id"]), `updated backlog: ${item.hcpBacklogId}`));
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `updated backlog: ${item.hcpBacklogId}`));
       return 0;
     }
     if (target === "backlog" && action === "delete") {
-      const item = deleteHcpBacklog(process.cwd(), {
+      const item = deleteHcpBacklog(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
         hcpBacklogId: requiredOption(options, "hcp-backlog-id"),
         reason: options.reason
       });
-      console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd(), options["session-id"]), `deleted backlog: ${item.hcpBacklogId}`));
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `deleted backlog: ${item.hcpBacklogId}`));
       return 0;
     }
     if (target === "archived" && action === "cleanup") {
-      const result = cleanupArchivedSessions(process.cwd(), {
+      const result = cleanupArchivedSessions(repoRoot, {
         olderThanDays: options["older-than-days"] ? Number(options["older-than-days"]) : undefined,
         keep: options.keep ? Number(options.keep) : undefined,
         dryRun: Boolean(options["dry-run"])
@@ -853,7 +915,7 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
       return 0;
     }
   } catch (error) {
-    console.log(buildHcpStateMarkdown(buildHcpStateSummary(process.cwd()), error instanceof Error ? error.message : "HCP command failed"));
+    console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot), error instanceof Error ? error.message : "HCP command failed"));
     return 2;
   }
 
@@ -1275,25 +1337,22 @@ function formatLoopList(loops: Array<{ loopId: string; title: string; status: st
 }
 
 function resolveGitRoot(cwd: string): string {
-  try {
-    return runExternal("git", ["rev-parse", "--show-toplevel"], cwd);
-  } catch {
-    return cwd;
-  }
+  return resolveRepositoryRoot(cwd);
 }
 
 function applyTaskIdFromHcpState(
   input: { agentId?: string; sessionId?: string; taskId?: string },
   expectedStatus: "active" | "closed",
-  tag: string
+  tag: string,
+  repoRoot: string
 ): { status: "ready" | "blocked"; markdown?: string } {
   if (input.taskId) {
     return { status: "ready" };
   }
   try {
     const session = input.sessionId
-      ? readSessionById(process.cwd(), input.sessionId)
-      : resolveActiveSession(process.cwd(), undefined, input.agentId);
+      ? readSessionById(repoRoot, input.sessionId)
+      : resolveActiveSession(repoRoot, undefined, input.agentId);
     const candidates = session.tasks.filter((task) => task.status === expectedStatus);
     if (candidates.length === 1) {
       input.sessionId = session.sessionId;
@@ -1348,14 +1407,16 @@ function readTaskPromoteHcpPolicyInput(
   enforceHcpPolicies: true;
   closeEvidence?: ReturnType<typeof readSessionById>["tasks"][number]["closeEvidence"];
   pullRequestLinked: boolean;
+  pullRequestMergedToDev: boolean;
   devContainsTarget: boolean;
 } {
   try {
     if (!sessionId || !taskId) {
-      return { enforceHcpPolicies: true, pullRequestLinked: false, devContainsTarget: false };
+      return { enforceHcpPolicies: true, pullRequestLinked: false, pullRequestMergedToDev: false, devContainsTarget: false };
     }
     const task = readSessionById(repoRoot, sessionId).tasks.find((candidate) => candidate.taskId === taskId);
     let devContainsTarget = false;
+    let pullRequestMergedToDev = false;
     if (targetCommit) {
       try {
         execFileSync("git", ["merge-base", "--is-ancestor", targetCommit, "origin/dev"], {
@@ -1367,14 +1428,27 @@ function readTaskPromoteHcpPolicyInput(
         devContainsTarget = false;
       }
     }
+    if (targetCommit && task?.pullRequest?.number) {
+      try {
+        const metadata = JSON.parse(execFileSync("gh", ["pr", "view", String(task.pullRequest.number), "--json", "state,baseRefName,mergeCommit"], {
+          cwd: repoRoot,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"]
+        })) as { state?: string; baseRefName?: string; mergeCommit?: { oid?: string } };
+        pullRequestMergedToDev = pullRequestMergeMatchesDevTarget(metadata, targetCommit, devContainsTarget);
+      } catch {
+        pullRequestMergedToDev = false;
+      }
+    }
     return {
       enforceHcpPolicies: true,
       closeEvidence: task?.closeEvidence,
       pullRequestLinked: Boolean(task?.pullRequest?.number || task?.pullRequest?.url),
+      pullRequestMergedToDev,
       devContainsTarget
     };
   } catch {
-    return { enforceHcpPolicies: true, pullRequestLinked: false, devContainsTarget: false };
+    return { enforceHcpPolicies: true, pullRequestLinked: false, pullRequestMergedToDev: false, devContainsTarget: false };
   }
 }
 

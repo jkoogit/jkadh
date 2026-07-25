@@ -16,6 +16,7 @@ export interface TaskPromoteInput {
   branchStatus?: TaskPromoteBranchStatus[];
   closeEvidence?: HcpTaskCloseEvidence;
   pullRequestLinked?: boolean;
+  pullRequestMergedToDev?: boolean;
   devContainsTarget?: boolean;
   enforceHcpPolicies?: boolean;
 }
@@ -134,6 +135,7 @@ export function buildTaskPromoteReport(input: TaskPromoteInput): TaskPromoteRepo
     closedTask: Boolean(input.taskId),
     closeEvidencePassed: input.closeEvidence?.outcome === "passed",
     pullRequestLinked: input.pullRequestLinked === true,
+    pullRequestMergedToDev: input.pullRequestMergedToDev === true,
     devContainsTarget: input.devContainsTarget === true
   }) : [];
   const promotionReady = missing.length === 0
