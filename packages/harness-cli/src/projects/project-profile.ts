@@ -1,15 +1,23 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export type ProjectAccessMode = "internal" | "env";
 
 export interface ProjectProfile {
   project_id: string;
+  display_name?: string;
   repo_full_name: string;
   local_path: string;
   access_mode: ProjectAccessMode;
   credential_ref?: string;
+  default_base_branch?: string;
+  task_pr_base_branch?: string;
+  promotion_branches?: string[];
+  branch_strategy?: "feature";
+  branch_alignment_policy?: "aligned" | "promotion";
+  allowed_work_types?: Array<"platform" | "service" | "integration">;
+  harness_enabled?: boolean;
 }
 
 export interface ProjectAccessResult {
@@ -40,4 +48,8 @@ export function checkProjectAccess(profile: ProjectProfile): ProjectAccessResult
     status: "blocked",
     reason: "env repository access is reserved for a later implementation"
   };
+}
+
+export function resolveProjectLocalPath(profile: ProjectProfile, repositoryRoot: string): string {
+  return resolve(repositoryRoot, profile.local_path);
 }

@@ -1,0 +1,14 @@
+{
+  "project_id": "pdfowers",
+  "display_name": "PDFowers",
+  "repo_full_name": "jkoogit/PDFowers",
+  "local_path": "../PDFowers",
+  "access_mode": "internal",
+  "default_base_branch": "main",
+  "task_pr_base_branch": "dev",
+  "promotion_branches": ["dev", "stg", "main"],
+  "branch_strategy": "feature",
+  "branch_alignment_policy": "promotion",
+  "allowed_work_types": ["service", "integration"],
+  "harness_enabled": true
+}

@@ -21,11 +21,12 @@ import { runDictionaryList } from "./db/dictionary.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "./flows/session-close.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
+import { readProjectPreflight } from "./flows/project-preflight.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
 import { buildTaskProcessReport, parseTaskProcessArgs, type TaskProcessInput } from "./flows/task-process.ts";
 import { buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs, readTaskPromoteBranchStatus } from "./flows/task-promote.ts";
 import { buildTaskStartReport, buildTaskStartStateRegistrationRecovery, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
-import { checkProjectAccess, loadProjectProfile } from "./projects/project-profile.ts";
+import { checkProjectAccess, loadProjectProfile, resolveProjectLocalPath } from "./projects/project-profile.ts";
 import { createReportDocument } from "./reports/create-report.ts";
 import { checkRequiredEnv } from "./security/env-check.ts";
 import { buildSessionPlan } from "./session/session-plan.ts";
@@ -68,6 +69,7 @@ const requiredEnvNames = [
 function printUsage(): void {
   console.log(`Usage:
   jkadh session start [project_id]
+  jkadh project preflight <project_id>
   jkadh session close [--execute --verified-issue <number> --reuse-open-pr]
   jkadh task start [--execute --issue-title <title> --branch <branch>]
   jkadh task process [--execute --session-id <id> --task-id <id>]
@@ -96,10 +98,26 @@ function printUsage(): void {
 async function run(argv: string[]): Promise<number> {
   const [scope, command, firstArg, secondArg] = argv;
 
+  if (scope === "project" && command === "preflight") {
+    const projectId = firstArg ?? "jkadh";
+    const profile = await loadProjectProfile(projectId);
+    const access = checkProjectAccess(profile);
+    if (access.status === "blocked") {
+      console.log(`# Project target preflight\n\n- project: ${profile.project_id}\n- status: blocked\n- access: ${access.reason}\n`);
+      return 2;
+    }
+    const repositoryRoot = resolveGitRoot(process.cwd());
+    const report = readProjectPreflight(profile, repositoryRoot);
+    console.log(report.markdown);
+    return report.status === "blocked" ? 2 : 0;
+  }
+
   if (scope === "session" && command === "start") {
     const sessionStartOptions = parseSessionStartOptions(expandBlockOption(argv.slice(2), parseSessionStartBlockArgs));
     const projectId = sessionStartOptions.projectId;
     const profile = await loadProjectProfile(projectId);
+    const repositoryRoot = resolveGitRoot(process.cwd());
+    const projectPath = resolveProjectLocalPath(profile, repositoryRoot);
     const access = checkProjectAccess(profile);
     if (access.status === "blocked") {
       const report = createReportDocument({
@@ -114,15 +132,15 @@ async function run(argv: string[]): Promise<number> {
       return 2;
     }
 
-    const retrospective = readLatestRetrospective(profile.local_path);
-    const retrospectiveDetail = retrospective ? readRetrospectiveDetail(profile.local_path, retrospective.path) : undefined;
-    const github = readGitHubOpenStatus(profile.repo_full_name, profile.local_path);
+    const retrospective = readLatestRetrospective(projectPath);
+    const retrospectiveDetail = retrospective ? readRetrospectiveDetail(projectPath, retrospective.path) : undefined;
+    const github = readGitHubOpenStatus(profile.repo_full_name, projectPath);
     const relatedIssue = findRelatedIssue(github.issues, retrospectiveDetail?.recommendedStartPoint);
 
     const report = buildSessionStartReport({
-      branchStatus: readInternalGitStatus(profile.local_path),
+      branchStatus: readInternalGitStatus(projectPath),
       backlog: {
-        candidates: readBacklogCandidates(profile.local_path)
+        candidates: readBacklogCandidates(projectPath)
       },
       credentials: {
         required: checkRequiredEnv(requiredEnvNames)
@@ -144,15 +162,15 @@ async function run(argv: string[]): Promise<number> {
         return 2;
       }
       try {
-        const session = createHcpSession(profile.local_path, {
+        const session = createHcpSession(projectPath, {
           agentId: sessionStartOptions.agentId,
           sessionNumber: sessionStartOptions.sessionNumber,
           sessionName
         });
-        console.log(buildHcpStateMarkdown(buildHcpStateSummary(profile.local_path, session.sessionId)));
+        console.log(buildHcpStateMarkdown(buildHcpStateSummary(projectPath, session.sessionId)));
       } catch (error) {
         console.log(buildHcpStateMarkdown(
-          buildHcpStateSummary(profile.local_path),
+          buildHcpStateSummary(projectPath),
           error instanceof Error ? error.message : "HCP session creation failed"
         ));
         return 2;
