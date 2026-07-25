@@ -44,6 +44,7 @@
 | BLG-028 | 타겟서비스 개발 운영구조와 배포필요성 검토 | Ready | 다음 Issue 선정 시 | Medium | 타겟서비스 첫 작업 후보 선정 | - | [BLG-028](./2026/07/16/BLG-028_타겟서비스_개발_운영구조와_배포필요성_검토.md) |
 | BLG-030 | Harness 완료조건·발견관리 운영 고도화 | Open | 다음 Issue 선정 시 | Low | Issue #124 최소 상태 모델 운영 결과 | - | [BLG-030](./2026/07/25/BLG-030_Harness_완료조건_발견관리_운영고도화.md) |
 | BLG-031 | GitHub 외부 payload 승인과 HCP 실행권한 분리 | Open | 승인 차단 재현 또는 권한 모델 정비 시 | Medium | 세션 019 외부 전송 승인 검토 | - | [BLG-031](./2026/07/25/BLG-031_GitHub_외부_payload_승인과_HCP_실행권한_분리.md) |
+| BLG-032 | 세션 종료 후 태스크 브랜치 lifecycle 후처리 보강 | Open | Harness session close 후처리 개선 시 | Medium | 세션 019 종료 후 브랜치 잔여 확인 | - | [BLG-032](./2026/07/25/BLG-032_세션종료후_태스크브랜치_lifecycle_후처리_보강.md) |
 
 ## 관련 문서
 
