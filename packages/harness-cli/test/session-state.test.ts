@@ -19,6 +19,7 @@ import {
   recordHcpCriteriaRevision,
   recordHcpTaskDiscovery,
   recordHcpTaskProcessEvidence,
+  recordHcpTaskRecoveryEvidence,
   recordHcpLifecyclePolicyEvidence,
   readSessionById,
   resolveHcpSourceBacklogs,
@@ -267,6 +268,35 @@ test("hcp task process appends remediation loop evidence without closing the tas
   assert.equal(updated.status, "active");
   assert.equal(updated.processEvidence?.[0].status, "completed");
   assert.equal(updated.processEvidence?.[0].recordedAt, "2026-07-21T01:00:00.000Z");
+});
+
+test("hcp task stores structured GitHub recovery evidence", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-state-recovery-evidence-"));
+  const session = createHcpSession(repo, { sessionNumber: "19", sessionName: "019_recovery_evidence" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "recovery task" });
+
+  const updated = recordHcpTaskRecoveryEvidence(repo, {
+    sessionId: session.sessionId,
+    taskId: task.taskId,
+    failedAction: "create_pr",
+    completedActions: ["commit_changes", "push_branch"],
+    category: "network",
+    retryable: true,
+    failure: "Could not resolve host: api.github.com",
+    recoveryAction: "retry only create_pr",
+    now: new Date("2026-07-25T04:00:00.000Z")
+  });
+
+  assert.deepEqual(updated.recoveryEvidence?.[0], {
+    failedAction: "create_pr",
+    completedActions: ["commit_changes", "push_branch"],
+    category: "network",
+    retryable: true,
+    failure: "Could not resolve host: api.github.com",
+    recoveryAction: "retry only create_pr",
+    recordedAt: "2026-07-25T04:00:00.000Z"
+  });
+  assert.equal(readSessionById(repo, session.sessionId).changeLog.at(-1)?.action, "task.record_recovery_evidence");
 });
 
 test("hcp task records linked loop ids without duplicates", () => {

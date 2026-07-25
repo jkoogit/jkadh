@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
+import { classifyGitHubCommandFailure, formatGitHubFailureEvidence } from "../github/command-failure.ts";
 
 export interface TaskStartInput {
   agentId?: string;
@@ -54,6 +55,12 @@ export interface TaskStartExecutionResult {
     status: "executed" | "blocked" | "skipped";
     detail: string;
   }[];
+  recovery?: GitHubActionRecoveryEvidence;
+}
+
+export interface GitHubActionRecoveryEvidence extends ReturnType<typeof classifyGitHubCommandFailure> {
+  failedAction: HarnessAction;
+  completedActions: HarnessAction[];
 }
 
 export function parseTaskStartArgs(args: string[]): TaskStartInput {
@@ -285,7 +292,14 @@ export function executeTaskStart(input: TaskStartInput, cwd: string, runner: Com
     }
 
     if (action === "create_issue") {
-      const step = runCreateIssueStep(input, cwd, runner);
+      let step: TaskStartExecutionResult["steps"][number];
+      try {
+        step = runCreateIssueStep(input, cwd, runner);
+      } catch (error) {
+        const evidence = classifyGitHubCommandFailure(error);
+        steps.push({ action, status: "blocked", detail: formatGitHubFailureEvidence(evidence) });
+        return buildExecutionResult("blocked", steps, { ...evidence, failedAction: action, completedActions: completedActions(steps) });
+      }
       steps.push(step);
       const createdIssue = parseIssueNumber(step.detail);
       if (!createdIssue) {
@@ -515,7 +529,7 @@ function parseIssueNumber(value: string): number | undefined {
   return Number.isFinite(issueNumber) ? issueNumber : undefined;
 }
 
-function buildExecutionResult(status: TaskStartExecutionResult["status"], steps: TaskStartExecutionResult["steps"]): TaskStartExecutionResult {
+function buildExecutionResult(status: TaskStartExecutionResult["status"], steps: TaskStartExecutionResult["steps"], recovery?: GitHubActionRecoveryEvidence): TaskStartExecutionResult {
   const phase = taskStartPhase(status, steps);
   const markdown = [
     "# Harness CLI task start execution",
@@ -546,8 +560,13 @@ function buildExecutionResult(status: TaskStartExecutionResult["status"], steps:
   return {
     status,
     markdown: `${markdown}\n`,
-    steps
+    steps,
+    recovery
   };
+}
+
+function completedActions(steps: TaskStartExecutionResult["steps"]): HarnessAction[] {
+  return steps.filter((step) => step.status === "executed" || step.status === "skipped").map((step) => step.action);
 }
 
 function taskStartPhase(status: TaskStartExecutionResult["status"], steps: TaskStartExecutionResult["steps"]): {

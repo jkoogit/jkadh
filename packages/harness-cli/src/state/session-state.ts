@@ -94,6 +94,16 @@ export interface HcpTaskProcessEvidence {
   recordedAt: string;
 }
 
+export interface HcpTaskRecoveryEvidence {
+  failedAction: string;
+  completedActions: string[];
+  category: "network" | "authentication" | "api" | "command" | "unknown";
+  retryable: boolean;
+  failure: string;
+  recoveryAction: string;
+  recordedAt: string;
+}
+
 export interface HcpTaskState {
   taskId: string;
   taskName: string;
@@ -108,6 +118,7 @@ export interface HcpTaskState {
   pullRequest?: HcpLinkedPullRequest;
   closeEvidence?: HcpTaskCloseEvidence;
   processEvidence?: HcpTaskProcessEvidence[];
+  recoveryEvidence?: HcpTaskRecoveryEvidence[];
   loopIds?: string[];
   phase?: HcpTaskPhase;
   criteriaRevisions?: HcpCriteriaRevision[];
@@ -267,6 +278,12 @@ export interface RecordHcpTaskProcessEvidenceInput {
   status: PolicyRemediationLoopStatus;
   iterations: PolicyRemediationIteration[];
   nextAction?: string;
+  now?: Date;
+}
+
+export interface RecordHcpTaskRecoveryEvidenceInput extends Omit<HcpTaskRecoveryEvidence, "recordedAt"> {
+  sessionId: string;
+  taskId: string;
   now?: Date;
 }
 
@@ -602,6 +619,26 @@ export function recordHcpTaskProcessEvidence(repoRoot: string, input: RecordHcpT
   task.updatedAt = timestamp;
   session.updatedAt = timestamp;
   appendChange(session, timestamp, "task.record_process_evidence", task.taskId, `${input.status}: iterations=${input.iterations.length}`);
+  writeSessionState(repoRoot, session);
+  return task;
+}
+
+export function recordHcpTaskRecoveryEvidence(repoRoot: string, input: RecordHcpTaskRecoveryEvidenceInput): HcpTaskState {
+  const session = readSessionById(repoRoot, input.sessionId);
+  const task = resolveTask(session, input.taskId, "active");
+  const timestamp = (input.now ?? new Date()).toISOString();
+  task.recoveryEvidence = [...(task.recoveryEvidence ?? []), {
+    failedAction: input.failedAction,
+    completedActions: input.completedActions,
+    category: input.category,
+    retryable: input.retryable,
+    failure: input.failure,
+    recoveryAction: input.recoveryAction,
+    recordedAt: timestamp
+  }];
+  task.updatedAt = timestamp;
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "task.record_recovery_evidence", task.taskId, `${input.failedAction}: ${input.category}; retryable=${input.retryable}`);
   writeSessionState(repoRoot, session);
   return task;
 }
