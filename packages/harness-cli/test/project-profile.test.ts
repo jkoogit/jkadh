@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { test } from "node:test";
 
-import { checkProjectAccess, loadProjectProfile } from "../src/projects/project-profile.ts";
+import { checkProjectAccess, loadProjectProfile, resolveProjectLocalPath } from "../src/projects/project-profile.ts";
 
 test("project profile loads internal jkadh repository settings", async () => {
   const root = await mkdtemp(join(tmpdir(), "jkadh-profile-"));
@@ -18,7 +18,11 @@ test("project profile loads internal jkadh repository settings", async () => {
         project_id: "jkadh",
         repo_full_name: "jkoogit/jkadh",
         local_path: ".",
-        access_mode: "internal"
+        access_mode: "internal",
+        default_base_branch: "main",
+        task_pr_base_branch: "dev",
+        promotion_branches: ["dev", "stg", "main"],
+        branch_alignment_policy: "aligned"
       }),
       "utf8"
     );
@@ -29,7 +33,11 @@ test("project profile loads internal jkadh repository settings", async () => {
       project_id: "jkadh",
       repo_full_name: "jkoogit/jkadh",
       local_path: ".",
-      access_mode: "internal"
+      access_mode: "internal",
+      default_base_branch: "main",
+      task_pr_base_branch: "dev",
+      promotion_branches: ["dev", "stg", "main"],
+      branch_alignment_policy: "aligned"
     });
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -63,4 +71,16 @@ test("project access blocks env mode until external repository support is implem
     status: "blocked",
     reason: "env repository access is reserved for a later implementation"
   });
+});
+
+test("project local path is resolved from the JKADH repository root", () => {
+  const result = resolveProjectLocalPath({
+    project_id: "service",
+    repo_full_name: "owner/service",
+    local_path: "../service",
+    access_mode: "internal"
+  }, "/workspace/jkadh");
+
+  assert.equal(isAbsolute(result), true);
+  assert.match(result.replaceAll("\\", "/"), /\/workspace\/service$/);
 });
