@@ -33,3 +33,45 @@ test("git status marks dirty worktree and unaligned remotes", () => {
   assert.equal(status.isAligned, false);
   assert.equal(status.worktreeStatus, "dirty");
 });
+
+test("git status ignores untracked hcp runtime", () => {
+  const status = buildBranchStatusFromGit({
+    currentBranch: "main",
+    worktreePorcelain: "?? .hcp/",
+    remoteRefs: {
+      main: "abc123",
+      dev: "abc123",
+      stg: "abc123"
+    }
+  });
+
+  assert.equal(status.worktreeStatus, "clean");
+});
+
+test("git status keeps non-hcp untracked changes dirty", () => {
+  const status = buildBranchStatusFromGit({
+    currentBranch: "main",
+    worktreePorcelain: "?? .hcp/sessions/active.json\n?? notes.txt",
+    remoteRefs: {
+      main: "abc123",
+      dev: "abc123",
+      stg: "abc123"
+    }
+  });
+
+  assert.equal(status.worktreeStatus, "dirty");
+});
+
+test("git status keeps tracked hcp changes dirty", () => {
+  const status = buildBranchStatusFromGit({
+    currentBranch: "main",
+    worktreePorcelain: " M .hcp/config.json",
+    remoteRefs: {
+      main: "abc123",
+      dev: "abc123",
+      stg: "abc123"
+    }
+  });
+
+  assert.equal(status.worktreeStatus, "dirty");
+});
