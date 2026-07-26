@@ -130,7 +130,8 @@ github: GitHub open issue/PR lookup unavailable
 | 출력 | 의미 |
 |---|---|
 | `branch alignment: dev/stg/main: aligned` | 원격 `dev`, `stg`, `main` 커밋이 일치한다. |
-| `worktree status: dirty` | 현재 작업 중 변경이 있다. 세션 구현 중이면 정상일 수 있다. |
+| `worktree status: clean` | 사용자 작업 변경이 없다. untracked `.hcp/` runtime만 존재하는 경우도 clean으로 판정한다. |
+| `worktree status: dirty` | tracked 변경 또는 `.hcp/` 외 untracked 변경이 있다. tracked `.hcp/` 변경은 runtime 예외로 보지 않는다. 세션 구현 중이면 정상일 수 있다. |
 | `backlog candidates` | 미해결 Backlog 후보 목록이다. |
 | `latest retrospective` | 다음 작업 판단에 사용할 최신 회고 문서다. |
 | `github: open issues: N; open PRs: M` | 내부 repo의 열린 Issue/PR 개수다. |

@@ -18,8 +18,16 @@ export function buildBranchStatusFromGit(input: GitStatusInput): BranchStatus {
     currentBranch: input.currentBranch,
     remoteBranches: refs,
     isAligned: refs.main === refs.dev && refs.dev === refs.stg,
-    worktreeStatus: input.worktreePorcelain.trim().length === 0 ? "clean" : "dirty"
+    worktreeStatus: hasUserWorktreeChanges(input.worktreePorcelain) ? "dirty" : "clean"
   };
+}
+
+function hasUserWorktreeChanges(worktreePorcelain: string): boolean {
+  return worktreePorcelain
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .some((line) => !/^\?\? \.hcp(?:[\\/]|$)/.test(line));
 }
 
 export function readInternalGitStatus(cwd: string): BranchStatus {
