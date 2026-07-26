@@ -40,12 +40,13 @@ BLG-022, BLG-031, BLG-032, BLG-134-001은 Deferred 유지. PDFowers 이메일 �
 - Session ID: codex_ses_021_20260725_001
 - Agent ID: codex
 - Session number: 021
-- Session status: active
+- Session status: complete
 - Linked issue: #141
 - Tasks: 3
   - codex_task_021_001 [promoted] 타겟서비스 현황과 DSN-012 및 현재 Harness 기능을 대조해 적용 필요성, 첫 가치 업무의 최소 Harness 범위와 실제 변경·배포 선행조건을 확정한다
   - codex_task_021_002 [promoted] PDFowers ProjectProfile을 등록하고 저장소·AGENTS·branch lifecycle·tracked dirty 상태·열린 Issue/PR·승인 필요성을 read/check/report로 판정한다
   - codex_task_021_003 [promoted] target preflight에서 tracked/untracked 변경을 분리하고 허용 runtime ignore, 현재 branch와 시작점 정책, ProjectProfile·경로·Git 오류의 구조화된 blocked 판정을 구현한다
+- 태스크 수 참고: codex_task_021_004는 Issue #147 전제를 원본 HCP JSON과 대조한 뒤 구현 불필요로 판정해 세션 종료 전에 삭제했으므로 최종 Tasks 3개에 포함하지 않는다.
 - Backlog items: 0
 
 
