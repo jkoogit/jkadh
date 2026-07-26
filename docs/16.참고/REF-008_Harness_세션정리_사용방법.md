@@ -316,5 +316,6 @@ Issue 종료는 `#세션정리`에서만 가능하다. `--verified-issue`가 있
 | 2026-07-13 | [#64](https://github.com/jkoogit/jkadh/issues/64) | Codex | GPT-5 | CTO | jk / Codex | Create | Harness `#세션정리` 사용방법 문서 작성 |
 | 2026-07-13 | [#73](https://github.com/jkoogit/jkadh/issues/73) | Codex | GPT-5 | CTO | jk / Codex | Update | 회고 생성, Issue 현행화, 세션정리 산출물 PR/머지/승급/검증 기준 추가 |
 | 2026-07-13 | [#73](https://github.com/jkoogit/jkadh/issues/73) | Codex | GPT-5 | CTO | jk / Codex | Update | HCP 상태관리 alias, taskId 주문서, 인계문구 자동 생성, 회고 상태 요약, 제목/브랜치 현행화, archived 정리 정책 추가 |
+| 2026-07-27 | [#154](https://github.com/jkoogit/jkadh/issues/154) | Codex | GPT-5 | CTO | jk / Codex | Update | `complete` 종료 결과와 후속 `archived` 보관 상태의 표시 기준, timestamp 및 회고 snapshot 해석 기준 명확화 |
 
 [목차로 이동](#ref-008-harness-세션정리-사용방법)
