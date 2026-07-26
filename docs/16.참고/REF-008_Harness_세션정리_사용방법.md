@@ -61,6 +61,10 @@ active -> closing -> complete -> archived
 
 `#세션시작`은 새 세션 파일을 만들고, 이전 `complete` 세션을 `archived`로 전환한다. `#세션정리` 실행 시 선택된 세션은 `closing`으로 전환되고, 세션정리 실행이 성공하면 `complete`가 된다. 판단 필요로 중단되면 `blocked`, 실행 실패는 `failed`로 기록한다.
 
+`complete`는 `#세션정리`가 성공한 시점의 종료 결과이고 `completedAt`을 기록한다. `archived`는 다음 `#세션시작`에서 완료 세션을 현재 작업 대상과 분리한 보관 상태이며, 기존 `completedAt`을 유지한 채 `archivedAt`을 추가한다. 따라서 `archived`는 완료가 취소되거나 다른 결과로 바뀐 상태가 아니다.
+
+회고의 HCP block은 문서가 생성된 snapshot 시점 상태를 `Session status at snapshot`으로 기록한다. 세션정리 도중 생성된 회고에는 `closing`과 함께 성공 후 최종 상태가 `complete`임을 표시한다. 회고는 종료 당시 evidence이므로 후속 세션에서 runtime이 `archived`로 전환되어도 회고 상태를 `archived`로 소급 수정하지 않는다. 현재 HCP runtime을 조회하는 보고서는 현재 상태인 `archived`와 `completedAt`, `archivedAt`을 기준으로 해석한다.
+
 세션 시작 시 세션명은 필수다. 같은 `agentId + sessionName`의 active 세션이 이미 있으면 새 세션 생성을 차단한다. 같은 agent에 여러 active 세션이 있는 것은 허용하지만, 세션명이 달라야 한다.
 
 ```text

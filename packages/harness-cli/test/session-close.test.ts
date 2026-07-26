@@ -328,7 +328,8 @@ test("session close hcp state can refresh summary after session moves to closing
     verifiedIssueNumbers: []
   }, repo);
 
-  assert.match(input.hcpRetrospectiveSummary ?? "", /Session status: closing/);
+  assert.match(input.hcpRetrospectiveSummary ?? "", /Session status at snapshot: closing/);
+  assert.match(input.hcpRetrospectiveSummary ?? "", /Session final status after successful #세션정리: complete/);
 });
 
 test("session close hcp state blocks unfinished active tasks", () => {

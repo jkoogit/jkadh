@@ -108,6 +108,9 @@ test("hcp session start archives previously complete sessions", () => {
   assert.equal(summary.activeSessions.length, 1);
   assert.equal(summary.archivedSessions.length, 1);
   assert.equal(summary.archivedSessions[0].sessionId, first.sessionId);
+  assert.equal(summary.archivedSessions[0].status, "archived");
+  assert.equal(summary.archivedSessions[0].completedAt, "2026-07-13T02:00:00.000Z");
+  assert.equal(summary.archivedSessions[0].archivedAt, "2026-07-13T03:00:00.000Z");
   assert.equal(summary.selectedSession?.sessionId, second.sessionId);
 });
 
@@ -531,6 +534,7 @@ test("hcp state builds handoff and retrospective summary from session state", ()
   assert.ok(selected);
   assert.match(buildHcpSessionHandoff(selected), /Completed tasks: codex_task_010_001 summary task/);
   assert.match(buildHcpSessionRetrospectiveSummary(selected), /HCP Session State/);
+  assert.match(buildHcpSessionRetrospectiveSummary(selected), /Session status at snapshot: active/);
   assert.match(buildHcpSessionRetrospectiveSummary(selected), /codex_task_010_001 \[promoted\] summary task/);
 });
 
