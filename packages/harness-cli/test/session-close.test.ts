@@ -5,6 +5,11 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { beginSessionCloseState, buildSessionCloseReport, completeSessionCloseState, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "../src/flows/session-close.ts";
+
+const closingRetrospectiveSummary = [
+  "Session status at snapshot: closing",
+  "Session final status after successful #세션정리: complete"
+].join("\n");
 import { addHcpTask, createHcpSession, readSessionById, transitionHcpSessionStatus, updateHcpTask } from "../src/state/session-state.ts";
 
 test("session close arg parser accepts closure fields and verified issues", () => {
@@ -379,6 +384,7 @@ test("session close execution blocks without verified issue candidates", () => {
     issueUpdate: "Issue #64 updated",
     remainingWork: "No open PR",
     retrospective: "RET draft ready",
+    hcpRetrospectiveSummary: closingRetrospectiveSummary,
     retrospectiveDeferredReason: "RET-009 will be added in a follow-up correction task",
     handoff: "Next session starts from report suffix backlog",
     unresolvedDocs: [],
@@ -523,6 +529,7 @@ test("session close execution prints recovery report when PR creation fails afte
     issueUpdate: "Issue #73 updated",
     remainingWork: "No open PR",
     retrospective: "RET draft ready",
+    hcpRetrospectiveSummary: closingRetrospectiveSummary,
     handoff: "Next session starts from generated RET",
     unresolvedDocs: [],
     verifiedIssueNumbers: [73],
@@ -576,6 +583,7 @@ test("session close execution creates retrospective draft before decision-requir
     issueUpdate: "Issue #73 updated",
     remainingWork: "No open PR",
     retrospective: "RET draft ready",
+    hcpRetrospectiveSummary: closingRetrospectiveSummary,
     handoff: "Next session starts from generated RET",
     unresolvedDocs: [],
     verifiedIssueNumbers: [],
@@ -595,7 +603,7 @@ test("session close execution creates retrospective draft before decision-requir
   assert.equal(result.status, "blocked");
   assert.equal(result.steps[0].action, "write_retrospective");
   assert.equal(result.steps[0].status, "executed");
-  assert.match(result.steps[2].detail, /missing execution options: message; pr-title; related-issue/);
+  assert.match(result.steps.at(-1)?.detail ?? "", /missing execution options: message; pr-title; related-issue/);
   const relativePath = result.steps[0].detail.replace("created ", "");
   const retrospective = readFileSync(join(repo, relativePath), "utf8");
   const readme = readFileSync(join(repo, "docs", "12.회고", "README.md"), "utf8");
@@ -617,6 +625,7 @@ test("session close execution can PR merge and promote generated retrospective a
     issueUpdate: "Issue #73 updated",
     remainingWork: "No open PR",
     retrospective: "RET draft ready",
+    hcpRetrospectiveSummary: closingRetrospectiveSummary,
     handoff: "Next session starts from generated RET",
     unresolvedDocs: [],
     verifiedIssueNumbers: [],
@@ -678,6 +687,7 @@ test("session close execution ignores already merged session close PRs", () => {
     issueUpdate: "Issue #73 updated",
     remainingWork: "No open PR",
     retrospective: "RET draft ready",
+    hcpRetrospectiveSummary: closingRetrospectiveSummary,
     handoff: "Next session starts from generated RET",
     unresolvedDocs: [],
     verifiedIssueNumbers: [],
@@ -727,6 +737,7 @@ test("session close execution blocks open PR reuse without explicit approval", (
     issueUpdate: "Issue #73 updated",
     remainingWork: "No open task PR",
     retrospective: "RET draft ready",
+    hcpRetrospectiveSummary: closingRetrospectiveSummary,
     handoff: "Next session starts from generated RET",
     unresolvedDocs: [],
     verifiedIssueNumbers: [],
@@ -775,6 +786,7 @@ test("session close execution reuses open PR only with explicit approval", () =>
     issueUpdate: "Issue #73 updated",
     remainingWork: "No open task PR",
     retrospective: "RET draft ready",
+    hcpRetrospectiveSummary: closingRetrospectiveSummary,
     handoff: "Next session starts from generated RET",
     unresolvedDocs: [],
     verifiedIssueNumbers: [],
@@ -935,4 +947,44 @@ test("session close keeps verified issues open when retrospective close markers 
   assert.match(result.steps.at(-1)?.detail ?? "", /retrospective close marker verification failed/);
   assert.match(result.steps.at(-1)?.detail ?? "", /Session final status after successful #세션정리: complete/);
   assert.doesNotMatch(calls.join("\n"), /gh issue close/);
+  assert.doesNotMatch(calls.join("\n"), /gh issue (edit|comment)/);
+  assert.doesNotMatch(calls.join("\n"), /git (add|commit|push)/);
+  assert.equal(result.recovery?.sessionStatus, "active");
+});
+
+test("session close restores active state when early retrospective marker verification blocks retry", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-marker-retry-"));
+  const session = createHcpSession(repo, {
+    agentId: "codex",
+    sessionNumber: "10",
+    sessionName: "010_Harness_HCP_state",
+    now: new Date("2026-07-13T01:00:00.000Z")
+  });
+  writeFileSync(join(repo, "retrospective.md"), "Session status at snapshot: closing\n");
+  const state = beginSessionCloseState({
+    sessionId: session.sessionId,
+    completedTasks: ["task promote"],
+    issueUpdate: "Issue #64 updated",
+    remainingWork: "No open PR",
+    retrospective: "RET draft ready",
+    retrospectiveDocument: "retrospective.md",
+    handoff: "Retry after correcting the retrospective",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [64],
+    execution: { enabled: true }
+  }, repo);
+
+  assert.equal(readSessionById(repo, session.sessionId).status, "closing");
+  const execution = executeSessionClose(state.executionInput, repo, {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/010-session-close";
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") return repo;
+      return "";
+    }
+  });
+  completeSessionCloseState(repo, state.sessionId, execution.status, execution.recovery);
+
+  assert.equal(execution.status, "blocked");
+  assert.equal(execution.steps.at(-1)?.action, "check_gate");
+  assert.equal(readSessionById(repo, session.sessionId).status, "active");
 });
