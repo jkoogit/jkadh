@@ -7,7 +7,7 @@ import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 import { classifyGitHubCommandFailure, type GitHubFailureCategory } from "../github/command-failure.ts";
-import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, readSessionById, resolveActiveSession } from "../state/session-state.ts";
+import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, readSessionById, resolveActiveSession, transitionHcpSessionStatus } from "../state/session-state.ts";
 
 export interface SessionCloseInput {
   agentId?: string;
@@ -406,7 +406,11 @@ export function enrichSessionCloseInputWithAutoStatus(
   };
 }
 
-export function enrichSessionCloseInputWithHcpState(input: SessionCloseInput, cwd: string): SessionCloseInput {
+export function enrichSessionCloseInputWithHcpState(
+  input: SessionCloseInput,
+  cwd: string,
+  options: { refreshRetrospectiveSummary?: boolean } = {}
+): SessionCloseInput {
   try {
     const session = input.sessionId
       ? readSessionById(cwd, input.sessionId)
@@ -425,7 +429,9 @@ export function enrichSessionCloseInputWithHcpState(input: SessionCloseInput, cw
         ? input.completedTasks
         : promotedTasks.map((task) => `${task.taskId} ${task.taskName}`),
       handoff: input.handoff ?? buildHcpSessionHandoff(session),
-      hcpRetrospectiveSummary: input.hcpRetrospectiveSummary ?? buildHcpSessionRetrospectiveSummary(session),
+      hcpRetrospectiveSummary: options.refreshRetrospectiveSummary
+        ? buildHcpSessionRetrospectiveSummary(session)
+        : input.hcpRetrospectiveSummary ?? buildHcpSessionRetrospectiveSummary(session),
       verifiedIssueNumbers: input.verifiedIssueNumbers.length > 0
         ? input.verifiedIssueNumbers
         : session.linkedIssue?.number ? [session.linkedIssue.number] : [],
@@ -434,6 +440,52 @@ export function enrichSessionCloseInputWithHcpState(input: SessionCloseInput, cw
   } catch {
     return input;
   }
+}
+
+export function beginSessionCloseState(input: SessionCloseInput, cwd: string): {
+  status: "updated" | "skipped" | "blocked";
+  sessionId?: string;
+  detail: string;
+  executionInput: SessionCloseInput;
+} {
+  try {
+    const session = resolveActiveSession(cwd, input.sessionId, input.agentId);
+    transitionHcpSessionStatus(cwd, session.sessionId, "closing");
+    return {
+      status: "updated",
+      sessionId: session.sessionId,
+      detail: `session ${session.sessionId} moved to closing`,
+      executionInput: enrichSessionCloseInputWithHcpState(
+        { ...input, sessionId: session.sessionId },
+        cwd,
+        { refreshRetrospectiveSummary: true }
+      )
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "HCP session close state update unavailable";
+    return {
+      status: detail.startsWith("No active HCP session found") ? "skipped" : "blocked",
+      detail,
+      executionInput: input
+    };
+  }
+}
+
+export function completeSessionCloseState(
+  cwd: string,
+  sessionId: string | undefined,
+  executionStatus: "executed" | "blocked" | "skipped"
+): void {
+  if (!sessionId) return;
+  if (executionStatus === "executed") {
+    transitionHcpSessionStatus(cwd, sessionId, "complete");
+    return;
+  }
+  if (executionStatus === "blocked") {
+    transitionHcpSessionStatus(cwd, sessionId, "blocked");
+    return;
+  }
+  transitionHcpSessionStatus(cwd, sessionId, "failed");
 }
 
 export function executeSessionClose(input: SessionCloseInput, cwd: string, runner: CommandRunner = defaultCommandRunner): SessionCloseExecutionResult {

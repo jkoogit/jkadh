@@ -19,7 +19,7 @@ import { runDbBaseline } from "./db/db-baseline.ts";
 import { runDbValidate } from "./db/db-validate.ts";
 import { runDictionaryList } from "./db/dictionary.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
-import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "./flows/session-close.ts";
+import { beginSessionCloseState, buildSessionCloseReport, completeSessionCloseState, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "./flows/session-close.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
 import { readProjectPreflight } from "./flows/project-preflight.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
@@ -47,7 +47,6 @@ import {
   recordHcpLifecyclePolicyEvidence,
   resolveActiveSession,
   resolveHcpSourceBacklogs,
-  transitionHcpSessionStatus,
   transitionHcpTaskPhase,
   updateHcpTaskBranch,
   updateHcpTaskPullRequest,
@@ -201,15 +200,12 @@ async function run(argv: string[]): Promise<number> {
     });
     console.log(report.markdown);
     if (input.execution?.enabled) {
-      const sessionState = beginSessionCloseState(repoRoot, input.sessionId, input.agentId);
+      const sessionState = beginSessionCloseState(input, repoRoot);
       if (sessionState.status === "blocked") {
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), sessionState.detail));
         return 2;
       }
-      const executionInput = sessionState.sessionId
-        ? enrichSessionCloseInputWithHcpState({ ...input, sessionId: sessionState.sessionId }, repoRoot)
-        : input;
-      const execution = executeSessionClose(executionInput, repoRoot);
+      const execution = executeSessionClose(sessionState.executionInput, repoRoot);
       console.log(execution.markdown);
       completeSessionCloseState(repoRoot, sessionState.sessionId, execution.status);
       if (sessionState.sessionId) {
@@ -762,43 +758,6 @@ function parsePullRequestNumberFromText(value: string): number | undefined {
   const raw = match?.[1] ?? match?.[2];
   const number = raw ? Number(raw) : NaN;
   return Number.isFinite(number) ? number : undefined;
-}
-
-function beginSessionCloseState(cwd: string, sessionId?: string, agentId?: string): {
-  status: "updated" | "skipped" | "blocked";
-  sessionId?: string;
-  detail: string;
-} {
-  try {
-    const session = resolveActiveSession(cwd, sessionId, agentId);
-    transitionHcpSessionStatus(cwd, session.sessionId, "closing");
-    return {
-      status: "updated",
-      sessionId: session.sessionId,
-      detail: `session ${session.sessionId} moved to closing`
-    };
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "HCP session close state update unavailable";
-    if (detail.startsWith("No active HCP session found")) {
-      return { status: "skipped", detail };
-    }
-    return { status: "blocked", detail };
-  }
-}
-
-function completeSessionCloseState(cwd: string, sessionId: string | undefined, executionStatus: "executed" | "blocked" | "skipped"): void {
-  if (!sessionId) {
-    return;
-  }
-  if (executionStatus === "executed") {
-    transitionHcpSessionStatus(cwd, sessionId, "complete");
-    return;
-  }
-  if (executionStatus === "blocked") {
-    transitionHcpSessionStatus(cwd, sessionId, "blocked");
-    return;
-  }
-  transitionHcpSessionStatus(cwd, sessionId, "failed");
 }
 
 function runHcpCommand(command: string | undefined, args: string[]): number {
