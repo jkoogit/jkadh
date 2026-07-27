@@ -873,6 +873,11 @@ test("session close execution updates compliant issue titles", () => {
 });
 
 test("session close execution closes verified issues only", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-verified-issue-"));
+  writeFileSync(join(repo, "retrospective.md"), [
+    "Session status at snapshot: closing",
+    "Session final status after successful #세션정리: complete"
+  ].join("\n"));
   const calls: string[] = [];
   const result = executeSessionClose({
     completedTasks: ["task promote"],
@@ -880,23 +885,54 @@ test("session close execution closes verified issues only", () => {
     issueUpdate: "Issue #64 updated",
     remainingWork: "No open PR",
     retrospective: "RET draft ready",
-    retrospectiveDocument: "docs/12.?뚭퀬/RET-009_2026-07-13_HCP_?몄뀡?뺣━_?뚭퀬.md",
+    retrospectiveDocument: "retrospective.md",
     handoff: "Next session starts from report suffix backlog",
     unresolvedDocs: [],
     verifiedIssueNumbers: [64],
     execution: {
       enabled: true
     }
-  }, "repo", {
+  }, repo, {
     run(command, args) {
       calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") {
+        return repo;
+      }
       return "";
     }
   });
 
   assert.equal(result.status, "executed");
-  if (calls[0] === "git branch --show-current") {
-    calls.shift();
-  }
-  assert.equal(calls[0], "gh issue close 64 --comment Closed by verified #세션정리.");
+  assert.ok(calls.includes("gh issue close 64 --comment Closed by verified #세션정리."));
+});
+
+test("session close keeps verified issues open when retrospective close markers are missing", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-missing-marker-"));
+  writeFileSync(join(repo, "retrospective.md"), "Session status at snapshot: closing\n");
+  const calls: string[] = [];
+  const result = executeSessionClose({
+    completedTasks: ["task promote"],
+    sessionName: "Harness CLI execution modes",
+    issueUpdate: "Issue #64 updated",
+    remainingWork: "No open PR",
+    retrospective: "RET draft ready",
+    retrospectiveDocument: "retrospective.md",
+    handoff: "Next session starts from report suffix backlog",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [64],
+    execution: { enabled: true }
+  }, repo, {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") {
+        return repo;
+      }
+      return "";
+    }
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.steps.at(-1)?.detail ?? "", /retrospective close marker verification failed/);
+  assert.match(result.steps.at(-1)?.detail ?? "", /Session final status after successful #세션정리: complete/);
+  assert.doesNotMatch(calls.join("\n"), /gh issue close/);
 });
