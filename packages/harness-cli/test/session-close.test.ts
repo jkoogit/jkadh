@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "../src/flows/session-close.ts";
-import { addHcpTask, createHcpSession, transitionHcpSessionStatus, updateHcpTask } from "../src/state/session-state.ts";
+import { beginSessionCloseState, buildSessionCloseReport, completeSessionCloseState, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "../src/flows/session-close.ts";
+import { addHcpTask, createHcpSession, readSessionById, transitionHcpSessionStatus, updateHcpTask } from "../src/state/session-state.ts";
 
 test("session close arg parser accepts closure fields and verified issues", () => {
   const input = parseSessionCloseArgs([
@@ -306,7 +306,7 @@ test("session close hcp state fills promoted tasks and verified session issue", 
   assert.equal(report.status, "ready");
 });
 
-test("session close hcp state can refresh summary after session moves to closing", () => {
+test("session close orchestration replaces a report summary after closing transition before completion", () => {
   const repo = mkdtempSync(join(tmpdir(), "harness-session-close-closing-"));
   const session = createHcpSession(repo, {
     agentId: "codex",
@@ -314,22 +314,30 @@ test("session close hcp state can refresh summary after session moves to closing
     sessionName: "010_Harness_HCP_state",
     now: new Date("2026-07-13T01:00:00.000Z")
   });
-  transitionHcpSessionStatus(repo, session.sessionId, "closing", new Date("2026-07-13T01:05:00.000Z"));
-
-  const input = enrichSessionCloseInputWithHcpState({
+  const activeInput = enrichSessionCloseInputWithHcpState({
     sessionId: session.sessionId,
     completedTasks: ["task promote"],
     issueUpdate: "Issue #73 updated",
     remainingWork: "No open PR",
     retrospective: "RET draft ready",
     retrospectiveDocument: "docs/12.회고/RET-009_2026-07-13_HCP_세션정리_회고.md",
+    hcpRetrospectiveSummary: "operator-provided report summary",
     handoff: "Next session starts from generated RET",
     unresolvedDocs: [],
     verifiedIssueNumbers: []
   }, repo);
 
-  assert.match(input.hcpRetrospectiveSummary ?? "", /Session status at snapshot: closing/);
-  assert.match(input.hcpRetrospectiveSummary ?? "", /Session final status after successful #세션정리: complete/);
+  assert.equal(activeInput.hcpRetrospectiveSummary, "operator-provided report summary");
+
+  const state = beginSessionCloseState(activeInput, repo);
+
+  assert.equal(state.status, "updated");
+  assert.equal(readSessionById(repo, session.sessionId).status, "closing");
+  assert.match(state.executionInput.hcpRetrospectiveSummary ?? "", /Session status at snapshot: closing/);
+  assert.match(state.executionInput.hcpRetrospectiveSummary ?? "", /Session final status after successful #세션정리: complete/);
+  assert.doesNotMatch(state.executionInput.hcpRetrospectiveSummary ?? "", /operator-provided report summary/);
+  completeSessionCloseState(repo, state.sessionId, "executed");
+  assert.equal(readSessionById(repo, session.sessionId).status, "complete");
 });
 
 test("session close hcp state blocks unfinished active tasks", () => {
