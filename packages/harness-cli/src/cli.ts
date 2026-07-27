@@ -207,7 +207,7 @@ async function run(argv: string[]): Promise<number> {
       }
       const execution = executeSessionClose(sessionState.executionInput, repoRoot);
       console.log(execution.markdown);
-      completeSessionCloseState(repoRoot, sessionState.sessionId, execution.status);
+      completeSessionCloseState(repoRoot, sessionState.sessionId, execution.status, execution.recovery);
       if (sessionState.sessionId) {
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, sessionState.sessionId)));
       }

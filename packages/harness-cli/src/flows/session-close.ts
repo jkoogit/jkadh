@@ -106,6 +106,7 @@ export interface SessionCloseRecoveryState {
   retryable?: boolean;
   recoveryAction?: string;
   completedActions?: HarnessAction[];
+  sessionStatus?: "active";
 }
 
 const blockedActions = ["write_retrospective", "update_issue", "commit_changes", "push_branch", "create_pr", "merge_pr", "promote_branch", "close_issue"];
@@ -478,7 +479,8 @@ export function beginSessionCloseState(input: SessionCloseInput, cwd: string): {
 export function completeSessionCloseState(
   cwd: string,
   sessionId: string | undefined,
-  executionStatus: "executed" | "blocked" | "skipped"
+  executionStatus: "executed" | "blocked" | "skipped",
+  recovery?: SessionCloseRecoveryState
 ): void {
   if (!sessionId) return;
   if (executionStatus === "executed") {
@@ -486,7 +488,7 @@ export function completeSessionCloseState(
     return;
   }
   if (executionStatus === "blocked") {
-    transitionHcpSessionStatus(cwd, sessionId, "blocked");
+    transitionHcpSessionStatus(cwd, sessionId, recovery?.sessionStatus ?? "blocked");
     return;
   }
   transitionHcpSessionStatus(cwd, sessionId, "failed");
@@ -551,6 +553,27 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
       }
       steps.push({ action, status: "executed", detail: `created ${artifact.relativePath}` });
       continue;
+    }
+
+    if (action === "update_issue") {
+      const retrospectiveMarkerCheck = input.retrospectiveDocument
+        ? verifyRetrospectiveCloseMarkers(input, cwd, runner)
+        : undefined;
+      if (retrospectiveMarkerCheck?.status === "blocked") {
+        recovery.failedAction = "check_gate";
+        recovery.failure = retrospectiveMarkerCheck.detail;
+        recovery.retryable = true;
+        recovery.recoveryAction = "restore the HCP session to active, correct the retrospective close markers, and retry #세션정리";
+        recovery.completedActions = steps
+          .filter((step) => step.status === "executed" || step.status === "skipped")
+          .map((step) => step.action);
+        recovery.sessionStatus = "active";
+        steps.push({ action: "check_gate", status: "blocked", detail: retrospectiveMarkerCheck.detail });
+        return buildExecutionResult("blocked", steps, recovery);
+      }
+      if (retrospectiveMarkerCheck) {
+        steps.push({ action: "check_gate", status: "executed", detail: retrospectiveMarkerCheck.detail });
+      }
     }
 
     if (action === "update_issue") {
@@ -682,12 +705,6 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
     }
     if (!report.json.issueCloseReady) {
       steps.push({ action, status: "blocked", detail: "no verified issue close candidate" });
-      return buildExecutionResult("blocked", steps);
-    }
-
-    const retrospectiveMarkerCheck = verifyRetrospectiveCloseMarkers(input, cwd, runner);
-    if (retrospectiveMarkerCheck.status === "blocked") {
-      steps.push({ action, status: "blocked", detail: retrospectiveMarkerCheck.detail });
       return buildExecutionResult("blocked", steps);
     }
 
