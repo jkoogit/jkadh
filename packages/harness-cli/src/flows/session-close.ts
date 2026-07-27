@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { countUnresolvedBacklogEntries } from "../docs/backlog-index.ts";
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
@@ -114,6 +114,10 @@ const retrospectiveDirectoryName = "12.\uD68C\uACE0";
 const retrospectiveLabel = "\uD68C\uACE0";
 const defaultSessionRetrospectiveTitle = "\uC138\uC158\uC815\uB9AC \uD68C\uACE0";
 const verifiedSessionCloseComment = "Closed by verified #\uC138\uC158\uC815\uB9AC.";
+const requiredRetrospectiveCloseMarkers = [
+  "Session status at snapshot: closing",
+  "Session final status after successful #\uC138\uC158\uC815\uB9AC: complete"
+] as const;
 
 export function parseSessionCloseArgs(args: string[]): SessionCloseInput {
   const input: SessionCloseInput = {
@@ -681,6 +685,12 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
       return buildExecutionResult("blocked", steps);
     }
 
+    const retrospectiveMarkerCheck = verifyRetrospectiveCloseMarkers(input, cwd, runner);
+    if (retrospectiveMarkerCheck.status === "blocked") {
+      steps.push({ action, status: "blocked", detail: retrospectiveMarkerCheck.detail });
+      return buildExecutionResult("blocked", steps);
+    }
+
     for (const issueNumber of input.verifiedIssueNumbers) {
       runner.run("gh", ["issue", "close", String(issueNumber), "--comment", verifiedSessionCloseComment], cwd);
       steps.push({
@@ -821,6 +831,38 @@ function runDiffCheck(cwd: string, runner: CommandRunner): { status: "pass" | "b
     return {
       status: "blocked",
       detail: error instanceof Error ? error.message : "git diff --check failed"
+    };
+  }
+}
+
+function verifyRetrospectiveCloseMarkers(
+  input: SessionCloseInput,
+  cwd: string,
+  runner: CommandRunner
+): { status: "pass" | "blocked"; detail: string } {
+  if (!input.retrospectiveDocument?.trim()) {
+    return { status: "blocked", detail: "retrospective close marker verification failed: retrospective document missing" };
+  }
+  try {
+    const repoRoot = resolve(runner.run("git", ["rev-parse", "--show-toplevel"], cwd));
+    const documentPath = resolve(repoRoot, input.retrospectiveDocument);
+    const relativePath = relative(repoRoot, documentPath);
+    if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+      return { status: "blocked", detail: "retrospective close marker verification failed: document is outside repository" };
+    }
+    const markdown = readFileSync(documentPath, "utf8");
+    const missingMarkers = requiredRetrospectiveCloseMarkers.filter((marker) => !markdown.includes(marker));
+    if (missingMarkers.length > 0) {
+      return {
+        status: "blocked",
+        detail: `retrospective close marker verification failed: missing ${missingMarkers.join("; ")}`
+      };
+    }
+    return { status: "pass", detail: `retrospective close markers verified: ${relativePath}` };
+  } catch (error) {
+    return {
+      status: "blocked",
+      detail: `retrospective close marker verification failed: ${error instanceof Error ? error.message : "document read failed"}`
     };
   }
 }
