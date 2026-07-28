@@ -421,7 +421,7 @@ async function run(argv: string[]): Promise<number> {
             verificationResult: input.verificationResult ?? ""
           });
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), `closed task: ${task.taskId}`));
-          applyPendingHcpWorkFeedback(repoRoot, session.sessionId);
+          applyPendingHcpWorkFeedback(repoRoot, input.sessionId!);
           const previousWorkChangeCount = readSessionById(repoRoot, input.sessionId!).workChangeSets?.length ?? 0;
           syncHcpSessionWorkItems(repoRoot, {
             sessionId: input.sessionId!,
