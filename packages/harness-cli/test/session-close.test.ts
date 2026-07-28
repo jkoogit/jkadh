@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { beginSessionCloseState, buildSessionCloseReport, completeSessionCloseState, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "../src/flows/session-close.ts";
+import { beginSessionCloseState, buildSessionCloseReport, collectSessionRelatedIssues, completeSessionCloseState, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, enrichSessionCloseInputWithIssueSettlement, executeSessionClose, parseSessionCloseArgs, runSessionCloseExecution } from "../src/flows/session-close.ts";
 
 const closingRetrospectiveSummary = [
   "Session status at snapshot: closing",
   "Session final status after successful #세션정리: complete"
 ].join("\n");
-import { addHcpTask, addHcpWorkItem, createHcpSession, readSessionById, transitionHcpSessionStatus, updateHcpTask } from "../src/state/session-state.ts";
+const settlementDigest = (decision: string, reason: string, followUp: string) => createHash("sha256").update([decision, reason, followUp].join("\n")).digest("hex").slice(0, 12);
+import { addHcpTask, addHcpWorkItem, clearHcpSessionCloseCheckpoint, createHcpSession, readSessionById, recordHcpSessionCloseCheckpoint, transitionHcpSessionStatus, updateHcpTask } from "../src/state/session-state.ts";
 
 test("session close arg parser accepts closure fields and verified issues", () => {
   const input = parseSessionCloseArgs([
@@ -129,7 +131,7 @@ test("session close report is ready with required closure evidence", () => {
   assert.equal(report.json.scopeDecision.decision, "allowed");
   assert.equal(report.json.appliedPolicies[0].id, "REF-008");
   assert.match(report.markdown, /## Issue Management Comment/);
-  assert.match(report.markdown, /decision: close verified issue candidate/);
+  assert.match(report.markdown, /decision: close related Issue classified as close/);
 });
 
 test("session close report leaves session number blank when absent", () => {
@@ -307,8 +309,526 @@ test("session close hcp state fills promoted tasks and verified session issue", 
 
   assert.equal(input.sessionId, session.sessionId);
   assert.deepEqual(input.completedTasks, [`${task.taskId} HCP state task`]);
-  assert.deepEqual(input.verifiedIssueNumbers, [73]);
+  assert.deepEqual(input.verifiedIssueNumbers, []);
+  assert.deepEqual(input.relatedIssues, [{ number: 73, sources: ["session.linkedIssue", `task:${task.taskId}`] }]);
   assert.equal(report.status, "ready");
+});
+
+test("session close collects session and task issues without duplicates", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-related-issues-"));
+  const session = createHcpSession(repo, { sessionNumber: "10", sessionName: "related issues" });
+  const first = addHcpTask(repo, { sessionId: session.sessionId, taskName: "first", issueNumber: 73 });
+  const second = addHcpTask(repo, { sessionId: session.sessionId, taskName: "second", issueNumber: 73 });
+  const stored = readSessionById(repo, session.sessionId);
+  stored.linkedIssue = { hcpIssueId: "issue-73", sessionId: session.sessionId, number: 73 };
+
+  assert.deepEqual(collectSessionRelatedIssues(stored), [{
+    number: 73,
+    sources: ["session.linkedIssue", `task:${first.taskId}`, `task:${second.taskId}`],
+  }]);
+});
+
+test("session close blocks an undecided open issue and validates keep handoff evidence", () => {
+  const base = {
+    completedTasks: ["task promote"], sessionName: "settlement", issueUpdate: "issues checked",
+    remainingWork: "none", retrospective: "ready", retrospectiveDocument: "docs/12.회고/RET.md",
+    handoff: "#세션시작", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [{ number: 73, sources: ["session.linkedIssue"] }]
+  };
+  const undecided = enrichSessionCloseInputWithIssueSettlement(base, "repo", {
+    run: () => JSON.stringify({ number: 73, state: "OPEN", title: "open", url: "https://example/73" })
+  });
+  assert.equal(buildSessionCloseReport(undecided).status, "blocked");
+  assert.match(undecided.issueSettlementBlockers?.join(" ") ?? "", /OPEN without close\|keep\|handoff decision/);
+
+  const kept = enrichSessionCloseInputWithIssueSettlement({
+    ...base,
+    relatedIssues: [{ number: 73, sources: ["session.linkedIssue"], decision: "keep", reason: "follow-up remains", followUp: "BLG-999" }]
+  }, "repo", { run: () => JSON.stringify({ number: 73, state: "OPEN" }) });
+  const report = buildSessionCloseReport(kept);
+  assert.equal(report.status, "ready");
+  assert.match(report.markdown, /#73 \[OPEN\] => keep/);
+  assert.match(report.markdown, /```text\n#세션시작\n\nRelated Issue follow-ups:\n- Issue #73 keep: follow-up remains; follow-up: BLG-999\n```/);
+});
+
+test("session close blocks undecided issues before the closing state transition", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-issue-gate-"));
+  const session = createHcpSession(repo, { sessionNumber: "10", sessionName: "issue gate" });
+  const state = beginSessionCloseState({
+    sessionId: session.sessionId, completedTasks: ["done"], sessionName: "issue gate", issueUpdate: "checked",
+    remainingWork: "none", retrospective: "ready", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    issueSettlementBlockers: ["#73 OPEN without close|keep|handoff decision"]
+  }, repo);
+  assert.equal(state.status, "blocked");
+  assert.match(state.detail, /related issue settlement blocked/);
+  assert.equal(readSessionById(repo, session.sessionId).status, "active");
+});
+
+test("session close classifies closed issues and closes only explicit close decisions", () => {
+  const input = enrichSessionCloseInputWithIssueSettlement({
+    completedTasks: ["task promote"], sessionName: "settlement", issueUpdate: "issues checked",
+    remainingWork: "none", retrospective: "ready", retrospectiveDeferredReason: "existing artifact",
+    hcpRetrospectiveSummary: closingRetrospectiveSummary, handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [74],
+    relatedIssues: [
+      { number: 73, sources: ["task:a"] },
+      { number: 74, sources: ["task:b"], decision: "close" }
+    ], execution: { enabled: true }
+  }, "repo", {
+    run(_command, args) {
+      return JSON.stringify({ number: Number(args[2]), state: args[2] === "73" ? "CLOSED" : "OPEN" });
+    }
+  });
+  const calls: string[] = [];
+  const result = executeSessionClose(input, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      return "";
+    }
+  });
+  assert.equal(result.status, "executed");
+  assert.match(calls.join("\n"), /gh issue close 74/);
+  assert.doesNotMatch(calls.join("\n"), /gh issue close 73/);
+});
+
+test("session close comments on every keep and handoff issue after promotion gates", () => {
+  const calls: string[] = [];
+  const input = {
+    completedTasks: ["done"], sessionName: "settlement", issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing artifact", hcpRetrospectiveSummary: closingRetrospectiveSummary,
+    handoff: "#세션시작", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [
+      { number: 73, sources: ["task:a"], state: "OPEN" as const, decision: "keep" as const, reason: "approval pending", followUp: "BLG-031" },
+      { number: 74, sources: ["task:b"], state: "OPEN" as const, decision: "handoff" as const, reason: "next session", followUp: "session 025" }
+    ], execution: { enabled: true }
+  };
+  const report = buildSessionCloseReport(input);
+  const result = executeSessionClose(input, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      return "";
+    }
+  });
+  assert.equal(result.status, "executed");
+  assert.match(calls.join("\n"), /gh issue comment 73 --body <!-- hcp-session-close-settlement:settlement:73:keep:[0-9a-f]{12} -->/);
+  assert.match(calls.join("\n"), /gh issue comment 74 --body <!-- hcp-session-close-settlement:settlement:74:handoff:[0-9a-f]{12} -->/);
+  assert.match(report.markdown, /Related Issue follow-ups:\n- Issue #73 keep: approval pending; follow-up: BLG-031/);
+});
+
+test("session close reuses a marked keep or handoff settlement comment", () => {
+  const calls: string[] = [];
+  const input = {
+    sessionId: "codex_ses_024", completedTasks: ["done"], sessionName: "settlement", issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing artifact", hcpRetrospectiveSummary: closingRetrospectiveSummary,
+    handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [{ number: 73, sources: ["task:a"], state: "OPEN" as const, decision: "keep" as const, reason: "pending", followUp: "BLG-031" }],
+    execution: { enabled: true }
+  };
+  const result = executeSessionClose(input, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh" && args.join(" ") === "api --paginate --slurp repos/{owner}/{repo}/issues/73/comments?per_page=100") {
+        const digest = settlementDigest("keep", "pending", "BLG-031");
+        return JSON.stringify([[], [{ body: `<!-- hcp-session-close-settlement:codex_ses_024:73:keep:${digest} -->` }]]);
+      }
+      return "";
+    }
+  });
+  assert.equal(result.status, "executed");
+  assert.match(result.markdown, /settlement already recorded for issue #73: keep/);
+  assert.doesNotMatch(calls.join("\n"), /gh issue comment 73/);
+});
+
+test("session close writes a new settlement when reason or follow-up changes", () => {
+  const calls: string[] = [];
+  const input = {
+    sessionId: "codex_ses_024", completedTasks: ["done"], sessionName: "settlement", issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing artifact", hcpRetrospectiveSummary: closingRetrospectiveSummary,
+    handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [{ number: 73, sources: ["task:a"], state: "OPEN" as const, decision: "keep" as const, reason: "changed", followUp: "BLG-032" }],
+    execution: { enabled: true }
+  };
+  const oldDigest = settlementDigest("keep", "pending", "BLG-031");
+  const result = executeSessionClose(input, "repo", {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh" && args.join(" ") === "api --paginate --slurp repos/{owner}/{repo}/issues/73/comments?per_page=100") {
+        return JSON.stringify([[{ body: `<!-- hcp-session-close-settlement:codex_ses_024:73:keep:${oldDigest} -->` }]]);
+      }
+      return "";
+    }
+  });
+  assert.equal(result.status, "executed");
+  assert.match(calls.join("\n"), /gh issue comment 73/);
+  assert.match(calls.join("\n"), /Reason: changed\nFollow-up: BLG-032/);
+});
+
+test("session close records completed issue numbers when a later settlement fails", () => {
+  const input = {
+    completedTasks: ["done"], sessionName: "settlement", issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing artifact", hcpRetrospectiveSummary: closingRetrospectiveSummary,
+    handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [
+      { number: 73, sources: ["task:a"], state: "OPEN" as const, decision: "keep" as const, reason: "pending", followUp: "BLG-031" },
+      { number: 74, sources: ["task:b"], state: "OPEN" as const, decision: "handoff" as const, reason: "later", followUp: "session 025" }
+    ], execution: { enabled: true }
+  };
+  const result = executeSessionClose(input, "repo", {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh" && args[0] === "issue" && args[1] === "comment" && args[2] === "74") throw new Error("network failure");
+      return "";
+    }
+  });
+  assert.equal(result.status, "blocked");
+  assert.deepEqual(result.recovery?.completedIssueSettlements, [73]);
+  assert.match(result.markdown, /completed issue settlements: #73/);
+  assert.equal(result.recovery?.sessionStatus, "active");
+});
+
+test("session close retries partial Issue settlement from active state and completes", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-settlement-retry-"));
+  const session = createHcpSession(repo, { sessionNumber: "24", sessionName: "settlement retry" });
+  const input = {
+    sessionId: session.sessionId, completedTasks: ["done"], sessionName: "settlement retry", issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing artifact", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [
+      { number: 73, sources: ["task:a"], state: "OPEN" as const, decision: "keep" as const, reason: "pending", followUp: "BLG-031" },
+      { number: 74, sources: ["task:b"], state: "OPEN" as const, decision: "handoff" as const, reason: "later", followUp: "session 025" }
+    ], execution: { enabled: true }
+  };
+  const comments = new Map<number, string[]>();
+  let failSecond = true;
+  const commentCalls = new Map<number, number>();
+  const runner = {
+    run(command: string, args: string[]) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh" && args[0] === "api") {
+        const number = Number(args[3]?.match(/issues\/(\d+)\//)?.[1]);
+        return JSON.stringify([comments.get(number)?.map((body) => ({ body })) ?? []]);
+      }
+      if (command === "gh" && args[0] === "issue" && args[1] === "comment") {
+        const number = Number(args[2]);
+        commentCalls.set(number, (commentCalls.get(number) ?? 0) + 1);
+        if (number === 74 && failSecond) {
+          failSecond = false;
+          throw new Error("network failure");
+        }
+        comments.set(number, [...(comments.get(number) ?? []), args[4] ?? ""]);
+      }
+      return "";
+    }
+  };
+
+  const firstState = beginSessionCloseState(input, repo);
+  assert.equal(firstState.status, "updated");
+  const first = executeSessionClose(firstState.executionInput, repo, runner);
+  completeSessionCloseState(repo, firstState.sessionId, first.status, first.recovery);
+  assert.equal(first.status, "blocked");
+  assert.equal(readSessionById(repo, session.sessionId).status, "active");
+
+  const secondState = beginSessionCloseState(input, repo);
+  const second = executeSessionClose(secondState.executionInput, repo, runner);
+  completeSessionCloseState(repo, secondState.sessionId, second.status, second.recovery);
+  assert.equal(second.status, "executed");
+  assert.equal(readSessionById(repo, session.sessionId).status, "complete");
+  assert.equal(commentCalls.get(73), 1);
+  assert.equal(commentCalls.get(74), 2);
+  assert.match(second.markdown, /settlement already recorded for issue #73: keep/);
+});
+
+test("session close checkpoint persists across reads and clears after completion", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-checkpoint-state-"));
+  const session = createHcpSession(repo, { sessionNumber: "24", sessionName: "checkpoint" });
+  recordHcpSessionCloseCheckpoint(repo, session.sessionId, {
+    resumeFrom: "close_issue", retrospectiveDocument: "docs/12.회고/RET.md", pullRequestNumber: 80,
+    promotedCommit: "abc123", targetBranches: ["stg", "main"], completedIssueSettlements: [73], relatedIssues: [], retryable: true
+  });
+  assert.equal(readSessionById(repo, session.sessionId).sessionCloseCheckpoint?.pullRequestNumber, 80);
+  clearHcpSessionCloseCheckpoint(repo, session.sessionId);
+  assert.equal(readSessionById(repo, session.sessionId).sessionCloseCheckpoint, undefined);
+});
+
+test("session close restores Issue decisions from checkpoint without repeated options", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-checkpoint-decisions-"));
+  const session = createHcpSession(repo, { sessionNumber: "24", sessionName: "checkpoint decisions" });
+  recordHcpSessionCloseCheckpoint(repo, session.sessionId, {
+    resumeFrom: "close_issue", targetBranches: [], completedIssueSettlements: [], retryable: false,
+    relatedIssues: [{ number: 73, sources: ["task:a"], state: "OPEN", decision: "keep", reason: "approval pending", followUp: "BLG-031" }]
+  });
+  const restored = enrichSessionCloseInputWithHcpState({
+    sessionId: session.sessionId, completedTasks: ["done"], issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: []
+  }, repo);
+  const settled = enrichSessionCloseInputWithIssueSettlement(restored, repo, {
+    run: () => JSON.stringify({ number: 73, state: "OPEN" })
+  });
+  assert.equal(settled.relatedIssues?.[0]?.decision, "keep");
+  assert.equal(settled.relatedIssues?.[0]?.followUp, "BLG-031");
+  assert.deepEqual(settled.issueSettlementBlockers, []);
+});
+
+test("session close refreshes remote Issue state while preserving an open settlement decision", () => {
+  const settled = enrichSessionCloseInputWithIssueSettlement({
+    completedTasks: ["done"], unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [{ number: 73, sources: ["checkpoint"], state: "OPEN", decision: "handoff", reason: "later", followUp: "session 025" }]
+  }, "repo", {
+    run: () => JSON.stringify({ number: 73, state: "OPEN", title: "refreshed", url: "https://example/issues/73" })
+  });
+  assert.equal(settled.relatedIssues?.[0]?.decision, "handoff");
+  assert.equal(settled.relatedIssues?.[0]?.reason, "later");
+  assert.equal(settled.relatedIssues?.[0]?.title, "refreshed");
+});
+
+test("CLI session close orchestration exits on first Issue failure and resumes in a second process run", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-cli-restart-"));
+  const session = createHcpSession(repo, { sessionNumber: "24", sessionName: "CLI restart" });
+  writeFileSync(join(repo, "retrospective.md"), closingRetrospectiveSummary);
+  let failComment = true;
+  const executionCalls: string[] = [];
+  const runner = {
+    run(command: string, args: string[]) {
+      executionCalls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "rev-parse --show-toplevel") return repo;
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "git" && args[0] === "rev-parse" && args[1]?.startsWith("origin/")) return "abc123";
+      if (command === "gh" && args.join(" ") === "pr view 80 --json state") return JSON.stringify({ state: "MERGED" });
+      if (command === "gh" && args.join(" ") === "pr view --json url,state") throw new Error("no pull requests found");
+      if (command === "gh" && args[0] === "pr" && args[1] === "create") return "https://github.com/example/repo/pull/80";
+      if (command === "gh" && args[0] === "api") return JSON.stringify([[]]);
+      if (command === "gh" && args[0] === "issue" && args[1] === "comment" && args[2] === "73" && failComment) {
+        failComment = false;
+        throw new Error("network failure");
+      }
+      return "";
+    }
+  };
+  const base = {
+    sessionId: session.sessionId, completedTasks: ["done"], issueUpdate: "settlement checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDocument: "retrospective.md", hcpRetrospectiveSummary: closingRetrospectiveSummary,
+    handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    execution: {
+      enabled: true, paths: ["retrospective.md"], mergePr: true, promote: true, targetBranches: ["stg", "main"], relatedIssueNumber: 99,
+      commitMessage: "docs: close session", prTitle: "[099]_(024)_HCP_session_close"
+    }
+  };
+  const issueRunner = { run: () => JSON.stringify({ number: 73, state: "OPEN" }) };
+
+  const firstInput = enrichSessionCloseInputWithIssueSettlement(enrichSessionCloseInputWithHcpState({
+    ...base,
+    relatedIssues: [{ number: 73, sources: ["task:a"], decision: "keep" as const, reason: "pending", followUp: "BLG-031" }]
+  }, repo), repo, issueRunner);
+  const first = runSessionCloseExecution(firstInput, repo, runner);
+  assert.equal(first.execution?.status, "blocked");
+  assert.equal(first.execution?.recovery?.failedAction, "close_issue", first.execution?.markdown);
+  assert.equal(readSessionById(repo, session.sessionId).status, "active");
+  assert.equal(readSessionById(repo, session.sessionId).sessionCloseCheckpoint?.relatedIssues[0]?.decision, "keep");
+  const firstWriteCount = executionCalls.filter((call) => call.includes("issue comment 73")).length;
+
+  executionCalls.length = 0;
+  const secondInput = enrichSessionCloseInputWithIssueSettlement(
+    enrichSessionCloseInputWithHcpState(base, repo), repo, issueRunner
+  );
+  assert.equal(secondInput.relatedIssues?.[0]?.decision, "keep");
+  const second = runSessionCloseExecution(secondInput, repo, runner);
+  assert.equal(second.execution?.status, "executed", second.execution?.markdown);
+  assert.equal(readSessionById(repo, session.sessionId).status, "complete");
+  assert.equal(readSessionById(repo, session.sessionId).sessionCloseCheckpoint, undefined);
+  assert.equal(firstWriteCount, 1);
+  assert.doesNotMatch(executionCalls.join("\n"), /git add|git commit|git push|gh pr create|gh pr merge/);
+  assert.match(executionCalls.join("\n"), /gh issue comment 73/);
+});
+
+test("session close preserves checkpoint recovery for non-retryable Issue settlement failures", () => {
+  const result = executeSessionClose({
+    completedTasks: ["done"], sessionName: "auth recovery", issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [{ number: 73, sources: ["task:a"], state: "OPEN", decision: "keep", reason: "pending", followUp: "BLG-031" }],
+    execution: { enabled: true }
+  }, "repo", {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh" && args[0] === "api") return "[]";
+      if (command === "gh" && args[0] === "issue" && args[1] === "comment") throw new Error("authentication failed");
+      return "";
+    }
+  });
+  assert.equal(result.status, "blocked");
+  assert.equal(result.recovery?.retryable, false);
+  assert.equal(result.recovery?.sessionStatus, "active");
+  assert.deepEqual(result.recovery?.relatedIssues?.map((issue) => issue.number), [73]);
+  assert.match(result.recovery?.recoveryAction ?? "", /requires operator remediation/);
+});
+
+test("session close converts checkpoint GitHub and Git verification exceptions into active recovery", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-checkpoint-command-errors-"));
+  writeFileSync(join(repo, "retrospective.md"), closingRetrospectiveSummary);
+  const base = {
+    completedTasks: ["done"], sessionName: "checkpoint errors", issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDocument: "retrospective.md", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [], execution: { enabled: true }
+  };
+  const githubFailure = executeSessionClose({
+    ...base,
+    recoveryCheckpoint: {
+      resumeFrom: "close_issue" as const, retrospectiveDocument: "retrospective.md", pullRequestNumber: 80,
+      targetBranches: [], completedIssueSettlements: [], relatedIssues: [], retryable: true, recordedAt: "2026-07-29T00:00:00.000Z"
+    }
+  }, repo, {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh") throw new Error("network failure");
+      return "";
+    }
+  });
+  assert.equal(githubFailure.status, "blocked");
+  assert.equal(githubFailure.recovery?.sessionStatus, "active");
+  assert.equal(githubFailure.recovery?.retryable, true);
+  assert.match(githubFailure.recovery?.failure ?? "", /network failure/);
+
+  const gitFailure = executeSessionClose({
+    ...base,
+    recoveryCheckpoint: {
+      resumeFrom: "close_issue" as const, retrospectiveDocument: "retrospective.md", promotedCommit: "abc123",
+      targetBranches: ["stg"], completedIssueSettlements: [], relatedIssues: [], retryable: true, recordedAt: "2026-07-29T00:00:00.000Z"
+    }
+  }, repo, {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      throw new Error("remote ref unavailable");
+    }
+  });
+  assert.equal(gitFailure.status, "blocked");
+  assert.equal(gitFailure.recovery?.sessionStatus, "active");
+  assert.equal(gitFailure.recovery?.retryable, false);
+  assert.match(gitFailure.recovery?.failure ?? "", /remote ref unavailable/);
+});
+
+test("session close preserves the persisted checkpoint when verification throws", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-checkpoint-verify-preserve-"));
+  const session = createHcpSession(repo, { sessionNumber: "24", sessionName: "verify preserve" });
+  recordHcpSessionCloseCheckpoint(repo, session.sessionId, {
+    resumeFrom: "close_issue", pullRequestNumber: 80, targetBranches: [], completedIssueSettlements: [73],
+    relatedIssues: [{ number: 73, sources: ["task:a"], state: "OPEN", decision: "keep", reason: "pending", followUp: "BLG-031" }],
+    retryable: true
+  });
+  const recordedAt = readSessionById(repo, session.sessionId).sessionCloseCheckpoint?.recordedAt;
+  const result = runSessionCloseExecution({
+    sessionId: session.sessionId, completedTasks: ["done"], issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    execution: { enabled: true }
+  }, repo, {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh") throw new Error("network failure");
+      return "";
+    }
+  });
+  assert.equal(result.execution?.status, "blocked");
+  assert.equal(readSessionById(repo, session.sessionId).status, "active");
+  assert.equal(readSessionById(repo, session.sessionId).sessionCloseCheckpoint?.recordedAt, recordedAt);
+  assert.equal(readSessionById(repo, session.sessionId).sessionCloseCheckpoint?.completedIssueSettlements[0], 73);
+});
+
+test("session close recovers when remote close succeeds but the first response fails", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-ambiguous-success-"));
+  const session = createHcpSession(repo, { sessionNumber: "24", sessionName: "ambiguous success" });
+  let remoteState: "OPEN" | "CLOSED" = "OPEN";
+  let closeCalls = 0;
+  const executionRunner = {
+    run(command: string, args: string[]) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh" && args[0] === "issue" && args[1] === "close") {
+        closeCalls += 1;
+        remoteState = "CLOSED";
+        throw new Error("network response lost");
+      }
+      return "";
+    }
+  };
+  const base = {
+    sessionId: session.sessionId, completedTasks: ["done"], issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    execution: { enabled: true }
+  };
+  const first = runSessionCloseExecution({
+    ...base,
+    relatedIssues: [{ number: 73, sources: ["task:a"], state: "OPEN" as const, decision: "close" as const }]
+  }, repo, executionRunner);
+  assert.equal(first.execution?.status, "blocked");
+  assert.equal(readSessionById(repo, session.sessionId).status, "active");
+
+  const secondInput = enrichSessionCloseInputWithIssueSettlement(
+    enrichSessionCloseInputWithHcpState(base, repo), repo,
+    { run: () => JSON.stringify({ number: 73, state: remoteState }) }
+  );
+  assert.equal(secondInput.relatedIssues?.[0]?.decision, "closed");
+  const second = runSessionCloseExecution(secondInput, repo, executionRunner);
+  assert.equal(second.execution?.status, "executed");
+  assert.equal(closeCalls, 1);
+  assert.equal(readSessionById(repo, session.sessionId).status, "complete");
+});
+
+test("session close restores active and preserves an existing checkpoint when checkpoint persistence fails", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-checkpoint-write-failure-"));
+  const session = createHcpSession(repo, { sessionNumber: "24", sessionName: "checkpoint write failure" });
+  recordHcpSessionCloseCheckpoint(repo, session.sessionId, {
+    resumeFrom: "close_issue", targetBranches: [], completedIssueSettlements: [], relatedIssues: [], retryable: true
+  });
+  const originalRecordedAt = readSessionById(repo, session.sessionId).sessionCloseCheckpoint?.recordedAt;
+  const result = runSessionCloseExecution({
+    sessionId: session.sessionId, completedTasks: ["done"], issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDeferredReason: "existing", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [{ number: 73, sources: ["task:a"], state: "OPEN", decision: "keep", reason: "pending", followUp: "BLG-031" }],
+    execution: { enabled: true }
+  }, repo, {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh" && args[0] === "api") return "[]";
+      if (command === "gh" && args[0] === "issue" && args[1] === "comment") throw new Error("network failure");
+      return "";
+    }
+  }, {
+    recordCheckpoint: () => { throw new Error("checkpoint disk unavailable"); },
+    clearCheckpoint: clearHcpSessionCloseCheckpoint,
+    completeState: completeSessionCloseState
+  });
+  assert.equal(result.execution?.status, "blocked");
+  assert.match(result.execution?.markdown ?? "", /checkpoint persistence failed: checkpoint disk unavailable/);
+  assert.equal(readSessionById(repo, session.sessionId).status, "active");
+  assert.equal(readSessionById(repo, session.sessionId).sessionCloseCheckpoint?.recordedAt, originalRecordedAt);
+});
+
+test("session close resumes at Issue settlement after checkpoint verification", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-checkpoint-resume-"));
+  const retrospective = join(repo, "retrospective.md");
+  writeFileSync(retrospective, closingRetrospectiveSummary);
+  const calls: string[] = [];
+  const result = executeSessionClose({
+    sessionId: "codex_ses_024", completedTasks: ["done"], sessionName: "checkpoint", issueUpdate: "checked", remainingWork: "none",
+    retrospective: "ready", retrospectiveDocument: "retrospective.md", handoff: "next", unresolvedDocs: [], verifiedIssueNumbers: [],
+    relatedIssues: [{ number: 74, sources: ["task:b"], state: "OPEN", decision: "handoff", reason: "later", followUp: "session 025" }],
+    recoveryCheckpoint: {
+      resumeFrom: "close_issue", retrospectiveDocument: "retrospective.md", pullRequestNumber: 80,
+      promotedCommit: "abc123", targetBranches: ["stg", "main"], completedIssueSettlements: [73], relatedIssues: [], retryable: true, recordedAt: "2026-07-29T00:00:00.000Z"
+    },
+    execution: { enabled: true }
+  }, repo, {
+    run(command, args) {
+      calls.push([command, ...args].join(" "));
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      if (command === "gh" && args.join(" ") === "pr view 80 --json state") return JSON.stringify({ state: "MERGED" });
+      if (command === "git" && (args.join(" ") === "rev-parse origin/stg" || args.join(" ") === "rev-parse origin/main")) return "abc123";
+      if (command === "gh" && args[0] === "api") return JSON.stringify([[]]);
+      return "";
+    }
+  });
+  assert.equal(result.status, "executed");
+  assert.doesNotMatch(calls.join("\n"), /git add|git commit|git push|gh pr create|gh pr merge/);
+  assert.match(calls.join("\n"), /gh issue comment 74/);
 });
 
 test("session close orchestration replaces a report summary after closing transition before completion", () => {
@@ -410,7 +930,7 @@ test("session close hcp state blocks unfinished active tasks", () => {
   assert.match(report.markdown, /hcp task state: codex_task_010_001 active/);
 });
 
-test("session close execution blocks without verified issue candidates", () => {
+test("session close execution skips issue close when no related issue is classified as close", () => {
   const result = executeSessionClose({
     completedTasks: ["task promote"],
     sessionName: "Harness CLI execution modes",
@@ -425,10 +945,15 @@ test("session close execution blocks without verified issue candidates", () => {
     execution: {
       enabled: true
     }
-  }, "repo");
+  }, "repo", {
+    run(command, args) {
+      if (command === "git" && args.join(" ") === "branch --show-current") return "session_codex/024-close";
+      return "";
+    }
+  });
 
-  assert.equal(result.status, "blocked");
-  assert.match(result.markdown, /no verified issue close candidate/);
+  assert.equal(result.status, "executed");
+  assert.match(result.markdown, /no open related issue requires settlement action/);
 });
 
 test("session close execution blocks on protected branches before writes", () => {
@@ -661,7 +1186,7 @@ test("session close execution can PR merge and promote generated retrospective a
     hcpRetrospectiveSummary: closingRetrospectiveSummary,
     handoff: "Next session starts from generated RET",
     unresolvedDocs: [],
-    verifiedIssueNumbers: [],
+    verifiedIssueNumbers: [73],
     execution: {
       enabled: true,
       paths: [],
@@ -698,7 +1223,7 @@ test("session close execution can PR merge and promote generated retrospective a
     }
   });
 
-  assert.equal(result.status, "blocked");
+  assert.equal(result.status, "executed");
   assert.match(calls.join("\n"), /git add -- .*RET-001_.* docs\/12\.회고\/README\.md/);
   assert.match(calls.join("\n"), /git commit -m docs: add session close retrospective/);
   assert.match(calls.join("\n"), /git push origin task_codex\/073-hcp-session-close-retrospective-guard/);
@@ -707,7 +1232,11 @@ test("session close execution can PR merge and promote generated retrospective a
   assert.match(calls.join("\n"), /gh pr merge --merge --delete-branch=false/);
   assert.match(calls.join("\n"), /git push origin abc123:refs\/heads\/stg/);
   assert.match(calls.join("\n"), /git push origin abc123:refs\/heads\/main/);
-  assert.equal(result.steps.at(-1)?.detail, "no verified issue close candidate");
+  assert.equal(result.steps.at(-1)?.detail, "settled issue #73: close");
+  const mergeIndex = calls.findIndex((call) => call.startsWith("gh pr merge"));
+  const promoteIndex = calls.findIndex((call) => call === "git push origin abc123:refs/heads/main");
+  const settlementIndex = calls.findIndex((call) => call.startsWith("gh issue close 73"));
+  assert.ok(mergeIndex >= 0 && mergeIndex < promoteIndex && promoteIndex < settlementIndex);
 });
 
 test("session close execution ignores already merged session close PRs", () => {
@@ -754,7 +1283,7 @@ test("session close execution ignores already merged session close PRs", () => {
     }
   });
 
-  assert.equal(result.status, "blocked");
+  assert.equal(result.status, "executed");
   assert.match(calls.join("\n"), /gh pr view --json url,state/);
   assert.match(calls.join("\n"), /gh pr create --base dev --head session_codex\/010-session-close/);
   assert.doesNotMatch(calls.join("\n"), /gh pr edit --title/);
@@ -851,7 +1380,7 @@ test("session close execution reuses open PR only with explicit approval", () =>
     }
   });
 
-  assert.equal(result.status, "blocked");
+  assert.equal(result.status, "executed");
   assert.match(calls.join("\n"), /gh pr edit --title \[073\]_\(001\)_HCP_세션정리_회고문서_누락방지_보강/);
   assert.doesNotMatch(calls.join("\n"), /gh pr create --base dev/);
 });
@@ -912,7 +1441,7 @@ test("session close execution updates compliant issue titles", () => {
     }
   });
 
-  assert.equal(result.status, "blocked");
+  assert.equal(result.status, "executed");
   assert.match(calls.join("\n"), /gh issue edit 73 --title \[073\]_\[HCP\]_session_close_guard/);
   assert.match(calls.join("\n"), /gh issue comment 73 --body Issue #73 updated/);
 });
@@ -948,7 +1477,7 @@ test("session close execution closes verified issues only", () => {
   });
 
   assert.equal(result.status, "executed");
-  assert.ok(calls.includes("gh issue close 64 --comment Closed by verified #세션정리."));
+  assert.match(calls.join("\n"), /gh issue close 64 --comment HCP session close settlement: close/);
 });
 
 test("session close keeps verified issues open when retrospective close markers are missing", () => {

@@ -236,6 +236,7 @@ export interface HcpSessionState {
   tasks: HcpTaskState[];
   changeLog: HcpChangeLogEntry[];
   lifecyclePolicyEvidence?: HcpLifecyclePolicyEvidence[];
+  sessionCloseCheckpoint?: HcpSessionCloseCheckpoint;
   createdAt: string;
   updatedAt: string;
   closingStartedAt?: string;
@@ -274,6 +275,52 @@ export interface AddHcpTaskInput {
   derivedFromTaskId?: string;
   dependsOnTaskIds?: string[];
   now?: Date;
+}
+
+export interface HcpSessionCloseCheckpoint {
+  resumeFrom: "close_issue";
+  retrospectiveDocument?: string;
+  pullRequestNumber?: number;
+  promotedCommit?: string;
+  targetBranches: string[];
+  completedIssueSettlements: number[];
+  relatedIssues: Array<{
+    number: number;
+    sources: string[];
+    state?: "OPEN" | "CLOSED" | "UNKNOWN";
+    decision?: "closed" | "close" | "keep" | "handoff";
+    reason?: string;
+    followUp?: string;
+    title?: string;
+    url?: string;
+  }>;
+  retryable: boolean;
+  recordedAt: string;
+}
+
+export function recordHcpSessionCloseCheckpoint(
+  repoRoot: string,
+  sessionId: string,
+  checkpoint: Omit<HcpSessionCloseCheckpoint, "recordedAt">
+): HcpSessionState {
+  const session = readSessionById(repoRoot, sessionId);
+  const timestamp = new Date().toISOString();
+  session.sessionCloseCheckpoint = { ...checkpoint, recordedAt: timestamp };
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "session.close_checkpoint", sessionId, `resume=${checkpoint.resumeFrom}; issues=${checkpoint.completedIssueSettlements.join(",")}`);
+  writeSessionState(repoRoot, session);
+  return session;
+}
+
+export function clearHcpSessionCloseCheckpoint(repoRoot: string, sessionId: string): HcpSessionState {
+  const session = readSessionById(repoRoot, sessionId);
+  if (!session.sessionCloseCheckpoint) return session;
+  const timestamp = new Date().toISOString();
+  delete session.sessionCloseCheckpoint;
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "session.clear_close_checkpoint", sessionId, "session close completed");
+  writeSessionState(repoRoot, session);
+  return session;
 }
 
 export interface UpdateHcpTaskRelationsInput {

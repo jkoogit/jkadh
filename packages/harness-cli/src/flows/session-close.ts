@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -7,7 +8,20 @@ import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 import { classifyGitHubCommandFailure, type GitHubFailureCategory } from "../github/command-failure.ts";
-import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, listHcpUnfinishedWorkItems, readSessionById, resolveActiveSession, transitionHcpSessionStatus } from "../state/session-state.ts";
+import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, clearHcpSessionCloseCheckpoint, listHcpUnfinishedWorkItems, readSessionById, recordHcpSessionCloseCheckpoint, resolveActiveSession, transitionHcpSessionStatus, type HcpSessionCloseCheckpoint, type HcpSessionState } from "../state/session-state.ts";
+
+export type RelatedIssueDecision = "closed" | "close" | "keep" | "handoff";
+
+export interface SessionCloseRelatedIssue {
+  number: number;
+  sources: string[];
+  state?: "OPEN" | "CLOSED" | "UNKNOWN";
+  decision?: RelatedIssueDecision;
+  reason?: string;
+  followUp?: string;
+  title?: string;
+  url?: string;
+}
 
 export interface SessionCloseInput {
   agentId?: string;
@@ -27,6 +41,9 @@ export interface SessionCloseInput {
   handoff?: string;
   unresolvedDocs: string[];
   verifiedIssueNumbers: number[];
+  relatedIssues?: SessionCloseRelatedIssue[];
+  issueSettlementBlockers?: string[];
+  recoveryCheckpoint?: HcpSessionCloseCheckpoint;
   execution?: SessionCloseExecutionOptions;
 }
 
@@ -74,6 +91,12 @@ export interface CommandRunner {
   run(command: string, args: string[], cwd: string): string;
 }
 
+export interface SessionCloseStateStore {
+  recordCheckpoint: typeof recordHcpSessionCloseCheckpoint;
+  clearCheckpoint: typeof clearHcpSessionCloseCheckpoint;
+  completeState: typeof completeSessionCloseState;
+}
+
 export interface SessionCloseExecutionResult {
   status: "executed" | "blocked" | "skipped";
   markdown: string;
@@ -107,6 +130,12 @@ export interface SessionCloseRecoveryState {
   retryable?: boolean;
   recoveryAction?: string;
   completedActions?: HarnessAction[];
+  completedIssueSettlements?: number[];
+  retrospectiveDocument?: string;
+  pullRequestNumber?: number;
+  promotedCommit?: string;
+  targetBranches?: string[];
+  relatedIssues?: SessionCloseRelatedIssue[];
   sessionStatus?: "active";
 }
 
@@ -115,7 +144,6 @@ const executionActions: HarnessAction[] = ["write_retrospective", "update_issue"
 const retrospectiveDirectoryName = "12.\uD68C\uACE0";
 const retrospectiveLabel = "\uD68C\uACE0";
 const defaultSessionRetrospectiveTitle = "\uC138\uC158\uC815\uB9AC \uD68C\uACE0";
-const verifiedSessionCloseComment = "Closed by verified #\uC138\uC158\uC815\uB9AC.";
 const requiredRetrospectiveCloseMarkers = [
   "Session status at snapshot: closing",
   "Session final status after successful #\uC138\uC158\uC815\uB9AC: complete"
@@ -226,6 +254,12 @@ export function parseSessionCloseArgs(args: string[]): SessionCloseInput {
       }
       index += 1;
     }
+    if (key === "--keep-issue" || key === "--handoff-issue") {
+      const decision = key === "--keep-issue" ? "keep" : "handoff";
+      const issue = parseIssueDecision(value, decision);
+      if (issue) input.relatedIssues = mergeRelatedIssues(input.relatedIssues ?? [], [issue]);
+      index += 1;
+    }
     if (key === "--path") {
       execution.paths.push(value);
       index += 1;
@@ -300,14 +334,14 @@ export function buildSessionCloseReport(input: SessionCloseInput): SessionCloseR
     noUnfinishedTask: !input.stateBlockers?.length,
     retrospectiveReady: hasRetrospectiveArtifact(input)
   });
-  const issueCloseReady = input.verifiedIssueNumbers.length > 0;
+  const issueCloseReady = closeIssueNumbers(input).length > 0;
   const decisionRequired = buildDecisionRequired(input, missing, issueCloseReady);
-  const status = missing.length === 0 && policiesPassed(policyResults) ? "ready" : "blocked";
+  const status = missing.length === 0 && policiesPassed(policyResults) && !input.issueSettlementBlockers?.length ? "ready" : "blocked";
   const appliedPolicies = buildAppliedPolicySummary(input);
   const scopeDecision = buildScopeDecisionSummary(input, status);
   const report = createReportDocument({
     title: "Harness CLI session close",
-    summary: "Summarize session closure evidence and verified issue-close candidates.",
+    summary: "Summarize session closure evidence and closed/close/keep/handoff issue settlement decisions.",
     checks: [
       {
         name: "completed tasks",
@@ -365,9 +399,16 @@ export function buildSessionCloseReport(input: SessionCloseInput): SessionCloseR
         detail: input.handoff ?? "missing"
       },
       {
+        name: "related issue settlement",
+        status: input.issueSettlementBlockers?.length ? "blocked" : "pass",
+        detail: input.issueSettlementBlockers?.length
+          ? input.issueSettlementBlockers.join("; ")
+          : formatRelatedIssueSummary(input.relatedIssues ?? [])
+      },
+      {
         name: "issue close readiness",
         status: issueCloseReady ? "pass" : "info",
-        detail: issueCloseReady ? input.verifiedIssueNumbers.map((issue) => `#${issue}`).join(", ") : "no verified issue close candidate"
+        detail: issueCloseReady ? closeIssueNumbers(input).map((issue) => `#${issue}`).join(", ") : "no related issue classified as close"
       },
       {
         name: "write actions",
@@ -434,6 +475,14 @@ export function enrichSessionCloseInputWithHcpState(
       title: item.title,
       backlogCandidateId: item.backlogCandidateId
     }));
+    const relatedIssues = mergeRelatedIssues(
+      collectSessionRelatedIssues(session),
+      [...(session.sessionCloseCheckpoint?.relatedIssues ?? []), ...(input.relatedIssues ?? [])]
+    );
+    const explicitlyClosing = new Set(input.verifiedIssueNumbers);
+    for (const issue of relatedIssues) {
+      if (explicitlyClosing.has(issue.number)) issue.decision = "close";
+    }
     return {
       ...input,
       sessionId: session.sessionId,
@@ -447,15 +496,66 @@ export function enrichSessionCloseInputWithHcpState(
       hcpRetrospectiveSummary: options.refreshRetrospectiveSummary
         ? buildHcpSessionRetrospectiveSummary(session)
         : input.hcpRetrospectiveSummary ?? buildHcpSessionRetrospectiveSummary(session),
-      verifiedIssueNumbers: input.verifiedIssueNumbers.length > 0
-        ? input.verifiedIssueNumbers
-        : session.linkedIssue?.number ? [session.linkedIssue.number] : [],
+      verifiedIssueNumbers: uniqueNumbers(input.verifiedIssueNumbers),
+      relatedIssues,
+      retrospectiveDocument: input.retrospectiveDocument ?? session.sessionCloseCheckpoint?.retrospectiveDocument,
+      recoveryCheckpoint: input.recoveryCheckpoint ?? session.sessionCloseCheckpoint,
       stateBlockers: [...blockers, ...workItemBlockers].length > 0 ? [...blockers, ...workItemBlockers] : input.stateBlockers,
       workItemDecisions: workItemDecisions.length > 0 ? workItemDecisions : input.workItemDecisions
     };
   } catch {
     return input;
   }
+}
+
+export function collectSessionRelatedIssues(session: HcpSessionState): SessionCloseRelatedIssue[] {
+  const issues: SessionCloseRelatedIssue[] = [];
+  if (session.linkedIssue?.number) {
+    issues.push({ number: session.linkedIssue.number, sources: ["session.linkedIssue"], title: session.linkedIssue.title, url: session.linkedIssue.url });
+  }
+  for (const task of session.tasks) {
+    if (task.issueNumber) issues.push({ number: task.issueNumber, sources: [`task:${task.taskId}`] });
+  }
+  return mergeRelatedIssues([], issues);
+}
+
+export function enrichSessionCloseInputWithIssueSettlement(
+  input: SessionCloseInput,
+  cwd: string,
+  runner: CommandRunner = defaultCommandRunner
+): SessionCloseInput {
+  const relatedIssues = (input.relatedIssues ?? []).map((issue) => {
+    let enriched = { ...issue, sources: [...issue.sources] };
+    try {
+      const metadata = JSON.parse(runner.run("gh", ["issue", "view", String(issue.number), "--json", "number,state,title,url"], cwd)) as {
+        state?: string; title?: string; url?: string;
+      };
+      enriched = {
+        ...enriched,
+        state: metadata.state === "CLOSED" ? "CLOSED" : metadata.state === "OPEN" ? "OPEN" : "UNKNOWN",
+        title: metadata.title ?? enriched.title,
+        url: metadata.url ?? enriched.url
+      };
+    } catch {
+      enriched.state = "UNKNOWN";
+    }
+    if (enriched.state === "CLOSED") enriched.decision = "closed";
+    return enriched;
+  });
+  const blockers = relatedIssues.flatMap((issue) => {
+    if (issue.state === "UNKNOWN") return [`#${issue.number} remote state unavailable`];
+    if (issue.state === "OPEN" && !issue.decision) return [`#${issue.number} OPEN without close|keep|handoff decision`];
+    if (issue.state === "OPEN" && (issue.decision === "keep" || issue.decision === "handoff") && (!issue.reason?.trim() || !issue.followUp?.trim())) {
+      return [`#${issue.number} ${issue.decision} requires reason and follow-up location`];
+    }
+    return [];
+  });
+  return {
+    ...input,
+    relatedIssues,
+    verifiedIssueNumbers: relatedIssues.filter((issue) => issue.state === "OPEN" && issue.decision === "close").map((issue) => issue.number),
+    issueSettlementBlockers: blockers
+  };
 }
 
 export function beginSessionCloseState(input: SessionCloseInput, cwd: string): {
@@ -466,6 +566,14 @@ export function beginSessionCloseState(input: SessionCloseInput, cwd: string): {
 } {
   try {
     const session = resolveActiveSession(cwd, input.sessionId, input.agentId);
+    if (input.issueSettlementBlockers?.length) {
+      return {
+        status: "blocked",
+        sessionId: session.sessionId,
+        detail: `session close related issue settlement blocked: ${input.issueSettlementBlockers.join("; ")}`,
+        executionInput: input
+      };
+    }
     const unfinishedTasks = session.tasks.filter((task) => task.status === "active" || task.status === "closed");
     const unfinishedWorkItems = listHcpUnfinishedWorkItems(session);
     if (unfinishedTasks.length > 0 || unfinishedWorkItems.length > 0) {
@@ -517,6 +625,51 @@ export function completeSessionCloseState(
   transitionHcpSessionStatus(cwd, sessionId, "failed");
 }
 
+export function runSessionCloseExecution(
+  input: SessionCloseInput,
+  cwd: string,
+  runner: CommandRunner = defaultCommandRunner,
+  stateStore: SessionCloseStateStore = defaultSessionCloseStateStore
+): {
+  sessionState: ReturnType<typeof beginSessionCloseState>;
+  execution?: SessionCloseExecutionResult;
+} {
+  const sessionState = beginSessionCloseState(input, cwd);
+  if (sessionState.status === "blocked") return { sessionState };
+
+  let execution = executeSessionClose(sessionState.executionInput, cwd, runner);
+  if (sessionState.sessionId && execution.status === "blocked" && execution.recovery?.failedAction === "close_issue") {
+    try {
+      stateStore.recordCheckpoint(cwd, sessionState.sessionId, {
+        resumeFrom: "close_issue",
+        retrospectiveDocument: execution.recovery.retrospectiveDocument,
+        pullRequestNumber: execution.recovery.pullRequestNumber,
+        promotedCommit: execution.recovery.promotedCommit,
+        targetBranches: execution.recovery.targetBranches ?? [],
+        completedIssueSettlements: execution.recovery.completedIssueSettlements ?? [],
+        relatedIssues: execution.recovery.relatedIssues ?? [],
+        retryable: execution.recovery.retryable ?? false
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "checkpoint persistence failed";
+      const recovery = {
+        ...execution.recovery,
+        retryable: false,
+        sessionStatus: "active" as const,
+        failure: `${execution.recovery.failure ?? "Issue settlement failed"}; checkpoint persistence failed: ${detail}`,
+        recoveryAction: "HCP session restored to active; preserve any existing checkpoint and repair checkpoint storage before retrying #세션정리"
+      };
+      execution = buildExecutionResult("blocked", [
+        ...execution.steps,
+        { action: "check_gate", status: "blocked", detail: `checkpoint persistence failed: ${detail}` }
+      ], recovery);
+    }
+  }
+  if (sessionState.sessionId && execution.status === "executed") stateStore.clearCheckpoint(cwd, sessionState.sessionId);
+  stateStore.completeState(cwd, sessionState.sessionId, execution.status, execution.recovery);
+  return { sessionState, execution };
+}
+
 export function executeSessionClose(input: SessionCloseInput, cwd: string, runner: CommandRunner = defaultCommandRunner): SessionCloseExecutionResult {
   if (!input.execution?.enabled) {
     return buildExecutionResult("skipped", []);
@@ -526,7 +679,9 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
   const steps: SessionCloseExecutionResult["steps"] = [];
   const recovery: SessionCloseRecoveryState = {
     createdCommit: false,
-    pushedBranch: false
+    pushedBranch: false,
+    retrospectiveDocument: input.retrospectiveDocument,
+    targetBranches: input.execution.targetBranches
   };
   const startupGate = checkSessionCloseExecutionStartupGate(input.execution, cwd, runner);
   recovery.branch = startupGate.branch;
@@ -534,9 +689,24 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
     steps.push({ action: "check_gate", status: "blocked", detail: startupGate.detail });
     return buildExecutionResult("blocked", steps);
   }
+  const resumeGate = input.recoveryCheckpoint ? validateSessionCloseCheckpoint(input.recoveryCheckpoint, cwd, runner) : undefined;
+  if (resumeGate?.status === "blocked") {
+    steps.push({ action: "check_gate", status: "blocked", detail: resumeGate.detail });
+    recovery.failedAction = "check_gate";
+    recovery.failure = resumeGate.detail;
+    recovery.failureCategory = resumeGate.failureCategory ?? "command";
+    recovery.retryable = resumeGate.retryable ?? false;
+    recovery.recoveryAction = resumeGate.recoveryAction ?? "preserve the checkpoint, restore the verified retrospective/PR/promotion evidence, and retry #세션정리";
+    recovery.sessionStatus = "active";
+    return buildExecutionResult("blocked", steps, recovery);
+  }
 
   try {
     for (const action of executionActions) {
+    if (input.recoveryCheckpoint?.resumeFrom === "close_issue" && action !== "close_issue") {
+      steps.push({ action, status: "skipped", detail: "recovery checkpoint verified; completed session-close action not repeated" });
+      continue;
+    }
     if (action === "write_retrospective" && input.retrospectiveDeferredReason) {
       steps.push({ action, status: "skipped", detail: `retrospective deferred: ${input.retrospectiveDeferredReason}` });
       continue;
@@ -568,6 +738,7 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
       }
       const artifact = writeNumberedSessionRetrospectiveArtifact(input, cwd, runner);
       input.retrospectiveDocument = artifact.relativePath;
+      recovery.retrospectiveDocument = artifact.relativePath;
       input.execution.paths.push(...artifact.changedPaths);
       const afterDiffCheck = runDiffCheck(cwd, runner);
       if (afterDiffCheck.status === "blocked") {
@@ -679,6 +850,7 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
           return buildExecutionResult("blocked", steps);
         }
         runner.run("gh", ["pr", "edit", "--title", input.execution.prTitle ?? "", "--body", body], cwd);
+        recovery.pullRequestNumber = parsePullRequestNumber(existingPr.url);
         steps.push({ action, status: "executed", detail: `${existingPr.url ?? "open PR"} updated by explicit reuse approval` });
         continue;
       }
@@ -694,6 +866,7 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
         "--body",
         body
       ], cwd);
+      recovery.pullRequestNumber = parsePullRequestNumber(prUrl);
       steps.push({ action, status: "executed", detail: prUrl || "PR created" });
       continue;
     }
@@ -708,6 +881,7 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
     if (action === "promote_branch") {
       runner.run("git", ["fetch", "origin", input.execution.baseBranch], cwd);
       const targetCommit = runner.run("git", ["rev-parse", `origin/${input.execution.baseBranch}`], cwd);
+      recovery.promotedCommit = targetCommit;
       for (const branch of input.execution.targetBranches) {
         runner.run("git", ["push", "origin", `${targetCommit}:refs/heads/${branch}`], cwd);
         runner.run("git", ["fetch", "origin", branch], cwd);
@@ -726,18 +900,25 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
       steps.push({ action, status: "blocked", detail: "session close report is not ready" });
       return buildExecutionResult("blocked", steps);
     }
-    if (!report.json.issueCloseReady) {
-      steps.push({ action, status: "blocked", detail: "no verified issue close candidate" });
-      return buildExecutionResult("blocked", steps);
+    const settlementIssues = issueSettlementTargets(input);
+    if (settlementIssues.length === 0) {
+      steps.push({ action, status: "skipped", detail: "no open related issue requires settlement action" });
+      continue;
     }
 
-    for (const issueNumber of input.verifiedIssueNumbers) {
-      runner.run("gh", ["issue", "close", String(issueNumber), "--comment", verifiedSessionCloseComment], cwd);
-      steps.push({
-        action,
-        status: "executed",
-        detail: `closed issue #${issueNumber}`
-      });
+    for (const issue of settlementIssues) {
+      if (issue.decision === "close") {
+        runner.run("gh", ["issue", "close", String(issue.number), "--comment", buildIssueSettlementComment(issue)], cwd);
+        steps.push({ action, status: "executed", detail: `settled issue #${issue.number}: close` });
+      } else {
+        const marker = issueSettlementMarker(input, issue);
+        if (hasIssueSettlementComment(issue.number, marker, cwd, runner)) {
+          steps.push({ action, status: "skipped", detail: `settlement already recorded for issue #${issue.number}: ${issue.decision}` });
+        } else {
+          runner.run("gh", ["issue", "comment", String(issue.number), "--body", buildIssueSettlementComment(issue, marker)], cwd);
+          steps.push({ action, status: "executed", detail: `settled issue #${issue.number}: ${issue.decision}` });
+        }
+      }
     }
   }
   } catch (error) {
@@ -756,6 +937,15 @@ export function executeSessionClose(input: SessionCloseInput, cwd: string, runne
     recovery.retryable = failureEvidence.retryable;
     recovery.recoveryAction = failureEvidence.recovery;
     recovery.completedActions = steps.filter((step) => step.status === "executed" || step.status === "skipped").map((step) => step.action);
+    recovery.completedIssueSettlements = steps
+      .map((step) => step.detail.match(/^settled issue #(\d+):/)?.[1])
+      .filter((value): value is string => Boolean(value))
+      .map(Number);
+    recovery.relatedIssues = input.relatedIssues;
+    if (failedAction === "close_issue") {
+      recovery.sessionStatus = "active";
+      recovery.recoveryAction = `${failureEvidence.recovery}; HCP session restored to active and completed prerequisites/Issue decisions preserved; immediate retry=${failureEvidence.retryable ? "allowed" : "requires operator remediation"}`;
+    }
     steps.push({ action: failedAction, status: "blocked", detail: recovery.failure });
     return buildExecutionResult("blocked", steps, recovery);
   }
@@ -797,7 +987,7 @@ function buildAppliedPolicySummary(input: SessionCloseInput): PolicySummary[] {
     {
       id: "REF-008",
       decision: "applied",
-      summary: "session close requires closure evidence, retrospective handling, handoff, and verified issue-close candidates"
+      summary: "session close requires closure evidence, retrospective handling, handoff, and complete related Issue settlement decisions"
     },
     {
       id: "REF-011",
@@ -1047,9 +1237,6 @@ function buildDecisionRequired(input: SessionCloseInput, missing: string[], issu
       + `#태스크시작 후 decision=task, #백로그추가 후 decision=backlog, or decision=cancel; natural-language feedback does not change HCP state`
     );
   }
-  if (!issueCloseReady) {
-    decisions.push("verified issue close candidate");
-  }
   if (hasIssueUpdateIntent(input) && !input.execution?.relatedIssueNumber) {
     decisions.push("related issue for issue update");
   }
@@ -1207,7 +1394,13 @@ function buildNextSessionHandoffSection(input: SessionCloseInput): string {
     `- session: ${sessionNameWithNumber(input) || "확인 필요"}`,
     `- next start: ${input.handoff ?? "확인 필요"}`,
     `- remaining work: ${input.remainingWork ?? "확인 필요"}`,
-    `- HCP state: ${input.sessionId ? `.hcp/sessions/*/${input.sessionId}.json` : "not linked"}`
+    `- HCP state: ${input.sessionId ? `.hcp/sessions/*/${input.sessionId}.json` : "not linked"}`,
+    "",
+    "### Copy-ready Next Work Prompt",
+    "",
+    "```text",
+    buildCopyReadyHandoff(input),
+    "```"
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -1232,7 +1425,7 @@ function buildIssueManagementSection(input: SessionCloseInput, issueCloseReady: 
     : input.verifiedIssueNumbers.length > 0
       ? input.verifiedIssueNumbers.map((issue) => `#${issue}`).join(", ")
       : "none";
-  const decision = issueCloseReady ? "close verified issue candidate" : "keep issue open or no issue target";
+  const decision = issueCloseReady ? "close related Issue classified as close" : "no close target; preserve closed/keep/handoff decisions";
   const comment = input.execution?.issueComment ?? input.issueUpdate ?? input.handoff ?? "확인 필요";
   const lines = [
     "",
@@ -1240,7 +1433,13 @@ function buildIssueManagementSection(input: SessionCloseInput, issueCloseReady: 
     "",
     `- target: ${target}`,
     `- decision: ${decision}`,
-    `- content: ${comment}`
+    `- content: ${comment}`,
+    "",
+    "### Related Issue Settlement",
+    "",
+    ...(input.relatedIssues?.length
+      ? input.relatedIssues.map((issue) => `- #${issue.number} [${issue.state ?? "UNKNOWN"}] => ${issue.decision ?? "undecided"}; source=${issue.sources.join(",")}; reason=${issue.reason ?? "-"}; follow-up=${issue.followUp ?? "-"}`)
+      : ["- none"])
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -1319,6 +1518,8 @@ function buildNumberedSessionRetrospectiveMarkdown(id: string, date: string, inp
     "",
     input.issueUpdate ?? issueUpdateDetail(input),
     "",
+    ...buildRelatedIssueSettlementLines(input),
+    "",
     "## 3. 남은 작업",
     "",
     input.remainingWork ?? "확인 필요",
@@ -1334,6 +1535,10 @@ function buildNumberedSessionRetrospectiveMarkdown(id: string, date: string, inp
     "## 6. 다음 세션 인계",
     "",
     input.handoff ?? "확인 필요",
+    "",
+    "```text",
+    buildCopyReadyHandoff(input),
+    "```",
     "",
     ...(input.hcpRetrospectiveSummary ? [input.hcpRetrospectiveSummary] : []),
     ""
@@ -1361,6 +1566,8 @@ function buildSessionRetrospectiveMarkdown(id: string, date: string, input: Sess
     "",
     input.issueUpdate ?? issueUpdateDetail(input),
     "",
+    ...buildRelatedIssueSettlementLines(input),
+    "",
     "## 3. 남은 작업",
     "",
     input.remainingWork ?? "확인 필요",
@@ -1375,7 +1582,11 @@ function buildSessionRetrospectiveMarkdown(id: string, date: string, input: Sess
     "",
     "## 6. 다음 세션 인계",
     "",
-    input.handoff ?? "확인 필요",
+    buildCopyReadyHandoff(input),
+    "",
+    "```text",
+    buildCopyReadyHandoff(input),
+    "```",
     ""
   ].join("\n")}\n`;
 }
@@ -1401,6 +1612,8 @@ function buildRetrospectiveMarkdown(id: string, date: string, input: SessionClos
     "",
     input.issueUpdate ?? "확인 필요",
     "",
+    ...buildRelatedIssueSettlementLines(input),
+    "",
     "## 3. 남은 작업",
     "",
     input.remainingWork ?? "확인 필요",
@@ -1416,6 +1629,10 @@ function buildRetrospectiveMarkdown(id: string, date: string, input: SessionClos
     "## 6. 다음 세션 인계",
     "",
     input.handoff ?? "확인 필요",
+    "",
+    "```text",
+    buildCopyReadyHandoff(input),
+    "```",
     ""
   ].join("\n")}\n`;
 }
@@ -1449,6 +1666,158 @@ function splitList(value: string): string[] {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+function parseIssueDecision(value: string, decision: "keep" | "handoff"): SessionCloseRelatedIssue | undefined {
+  const [rawNumber, reason, followUp] = value.split("|").map((part) => part.trim());
+  const number = Number(rawNumber?.replace(/^#/, ""));
+  return Number.isFinite(number) ? { number, sources: ["command"], decision, reason, followUp } : undefined;
+}
+
+function mergeRelatedIssues(base: SessionCloseRelatedIssue[], additions: SessionCloseRelatedIssue[]): SessionCloseRelatedIssue[] {
+  const merged = new Map<number, SessionCloseRelatedIssue>();
+  for (const issue of [...base, ...additions]) {
+    const previous = merged.get(issue.number);
+    const next: SessionCloseRelatedIssue = {
+      ...previous,
+      ...issue,
+      sources: [...new Set([...(previous?.sources ?? []), ...issue.sources])],
+      decision: issue.decision ?? previous?.decision,
+      reason: issue.reason ?? previous?.reason,
+      followUp: issue.followUp ?? previous?.followUp
+    };
+    for (const key of ["decision", "reason", "followUp", "title", "url", "state"] as const) {
+      if (next[key] === undefined) delete next[key];
+    }
+    merged.set(issue.number, next);
+  }
+  return [...merged.values()].sort((left, right) => left.number - right.number);
+}
+
+function uniqueNumbers(values: number[]): number[] {
+  return [...new Set(values)].sort((left, right) => left - right);
+}
+
+function closeIssueNumbers(input: SessionCloseInput): number[] {
+  if (input.relatedIssues?.length) {
+    return uniqueNumbers(input.relatedIssues.filter((issue) => issue.state !== "CLOSED" && issue.decision === "close").map((issue) => issue.number));
+  }
+  return uniqueNumbers(input.verifiedIssueNumbers);
+}
+
+function issueSettlementTargets(input: SessionCloseInput): SessionCloseRelatedIssue[] {
+  if (input.relatedIssues?.length) {
+    return input.relatedIssues.filter((issue) => issue.state === "OPEN" && ["close", "keep", "handoff"].includes(issue.decision ?? ""));
+  }
+  return uniqueNumbers(input.verifiedIssueNumbers).map((number) => ({ number, sources: ["verifiedIssueNumbers"], state: "OPEN", decision: "close" }));
+}
+
+function issueSettlementMarker(input: SessionCloseInput, issue: SessionCloseRelatedIssue): string {
+  const sessionKey = input.sessionId ?? input.sessionNumber ?? input.sessionName ?? "unlinked";
+  const digest = createHash("sha256")
+    .update([issue.decision, issue.reason ?? "", issue.followUp ?? ""].join("\n"))
+    .digest("hex")
+    .slice(0, 12);
+  return `<!-- hcp-session-close-settlement:${sessionKey}:${issue.number}:${issue.decision}:${digest} -->`;
+}
+
+function hasIssueSettlementComment(issueNumber: number, marker: string, cwd: string, runner: CommandRunner): boolean {
+  const output = runner.run("gh", ["api", "--paginate", "--slurp", `repos/{owner}/{repo}/issues/${issueNumber}/comments?per_page=100`], cwd).trim();
+  if (!output) return false;
+  const payload = JSON.parse(output) as Array<Array<{ body?: string }> | { body?: string }>;
+  const comments = payload.flatMap((page) => Array.isArray(page) ? page : [page]);
+  return comments.some((comment) => comment.body?.includes(marker));
+}
+
+function validateSessionCloseCheckpoint(
+  checkpoint: HcpSessionCloseCheckpoint,
+  cwd: string,
+  runner: CommandRunner
+): {
+  status: "pass" | "blocked";
+  detail: string;
+  failureCategory?: GitHubFailureCategory;
+  retryable?: boolean;
+  recoveryAction?: string;
+} {
+  const failures: string[] = [];
+  if (checkpoint.retrospectiveDocument && !existsSync(resolve(cwd, checkpoint.retrospectiveDocument))) {
+    failures.push(`retrospective missing: ${checkpoint.retrospectiveDocument}`);
+  }
+  if (checkpoint.pullRequestNumber) {
+    try {
+      const metadata = JSON.parse(runner.run("gh", ["pr", "view", String(checkpoint.pullRequestNumber), "--json", "state"], cwd)) as { state?: string };
+      if (metadata.state !== "MERGED") failures.push(`PR #${checkpoint.pullRequestNumber} is not MERGED`);
+    } catch (error) {
+      const failure = classifyGitHubCommandFailure(error);
+      return {
+        status: "blocked",
+        detail: `session close recovery checkpoint verification command failed: ${failure.failure}`,
+        failureCategory: failure.category,
+        retryable: failure.retryable,
+        recoveryAction: `${failure.recovery}; preserve the existing checkpoint and retry checkpoint verification`
+      };
+    }
+  }
+  if (checkpoint.promotedCommit) {
+    for (const branch of checkpoint.targetBranches) {
+      try {
+        const current = runner.run("git", ["rev-parse", `origin/${branch}`], cwd);
+        if (current !== checkpoint.promotedCommit) failures.push(`${branch}=${current || "missing"} expected ${checkpoint.promotedCommit}`);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : "git verification failed";
+        return {
+          status: "blocked",
+          detail: `session close recovery checkpoint verification command failed: ${detail}`,
+          failureCategory: "command",
+          retryable: false,
+          recoveryAction: "preserve the existing checkpoint, restore the remote Git refs, and retry checkpoint verification"
+        };
+      }
+    }
+  }
+  return failures.length
+    ? { status: "blocked", detail: `session close recovery checkpoint verification failed: ${failures.join("; ")}` }
+    : { status: "pass", detail: "session close recovery checkpoint verified; resume from close_issue" };
+}
+
+function parsePullRequestNumber(value?: string): number | undefined {
+  const raw = value?.match(/\/pull\/(\d+)/)?.[1];
+  const number = raw ? Number(raw) : NaN;
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function buildIssueSettlementComment(issue: SessionCloseRelatedIssue, marker?: string): string {
+  return [
+    ...(marker ? [marker] : []),
+    `HCP session close settlement: ${issue.decision}`,
+    `Issue: #${issue.number}`,
+    `Reason: ${issue.reason ?? (issue.decision === "close" ? "verified session work completed" : "-")}`,
+    `Follow-up: ${issue.followUp ?? (issue.decision === "close" ? "none" : "-")}`
+  ].join("\n");
+}
+
+function buildCopyReadyHandoff(input: SessionCloseInput): string {
+  const followUps = (input.relatedIssues ?? [])
+    .filter((issue) => issue.state === "OPEN" && (issue.decision === "keep" || issue.decision === "handoff"))
+    .map((issue) => `- Issue #${issue.number} ${issue.decision}: ${issue.reason}; follow-up: ${issue.followUp}`);
+  return [input.handoff ?? "확인 필요", ...(followUps.length ? ["", "Related Issue follow-ups:", ...followUps] : [])].join("\n");
+}
+
+function formatRelatedIssueSummary(issues: SessionCloseRelatedIssue[]): string {
+  return issues.length
+    ? issues.map((issue) => `#${issue.number}=${issue.state ?? "UNKNOWN"}/${issue.decision ?? "undecided"}`).join("; ")
+    : "no related issues";
+}
+
+function buildRelatedIssueSettlementLines(input: SessionCloseInput): string[] {
+  return [
+    "### 관련 Issue 결산",
+    "",
+    ...(input.relatedIssues?.length
+      ? input.relatedIssues.map((issue) => `- #${issue.number}: ${issue.state ?? "UNKNOWN"} / ${issue.decision ?? "undecided"}; 사유=${issue.reason ?? "-"}; 후속=${issue.followUp ?? "-"}`)
+      : ["- 없음"])
+  ];
+}
+
 function withExecutionDefaults(execution: SessionCloseExecutionOptions): SessionCloseExecutionOptions {
   return {
     ...execution,
@@ -1469,6 +1838,12 @@ const defaultCommandRunner: CommandRunner = {
       stdio: ["ignore", "pipe", "pipe"]
     }).trim();
   }
+};
+
+const defaultSessionCloseStateStore: SessionCloseStateStore = {
+  recordCheckpoint: recordHcpSessionCloseCheckpoint,
+  clearCheckpoint: clearHcpSessionCloseCheckpoint,
+  completeState: completeSessionCloseState
 };
 
 function buildExecutionResult(
@@ -1517,6 +1892,7 @@ function buildRecoveryReportSection(recovery?: SessionCloseRecoveryState): strin
     `- created commit: ${recovery.createdCommit ? "yes" : "no"}`,
     `- pushed branch: ${recovery.pushedBranch ? "yes" : "no"}`,
     `- completed actions: ${(recovery.completedActions ?? []).join(", ") || "none"}`,
+    `- completed issue settlements: ${(recovery.completedIssueSettlements ?? []).map((number) => `#${number}`).join(", ") || "none"}`,
     `- failure category: ${recovery.failureCategory ?? "unknown"}`,
     `- retryable: ${recovery.retryable ? "yes" : "no"}`,
     `- remaining action: ${remaining}`,
