@@ -299,15 +299,45 @@ REF 전문은 신규 기준을 처음 정의하거나 사람이 전문 확인을
 
 `created commit: no`, `pushed branch: no`이면 보통 로컬 파일 수정 전 또는 커밋 전 차단이므로 조건을 수정하고 재실행하면 된다. `created commit: yes`, `pushed branch: no`이면 로컬 커밋만 있는 상태이므로 커밋 내용을 확인한 뒤 push 또는 amend를 선택한다. `pushed branch: yes`이면 원격 상태가 이미 바뀌었으므로 PR 생성/갱신, 브랜치 정리, 재실행 중 하나를 명시적으로 선택한다.
 
-## 9. Issue 종료
+## 9. 관련 Issue 결산과 종료
 
-Issue 종료는 `#세션정리`에서만 가능하다. `--verified-issue`가 있는 경우에만 종료한다.
+세션정리는 HCP 세션의 `linkedIssue`와 모든 태스크의 `issueNumber`를 중복 없이 수집하고 GitHub 원격 상태를 확인한다. 각 Issue는 다음 중 하나로 분류한다.
+
+| 분류 | 의미 |
+|---|---|
+| `closed` | 원격에서 이미 CLOSED인 Issue다. 별도 종료 명령을 실행하지 않는다. |
+| `close` | 작업 범위가 완료되어 이번 세션정리의 PR 머지와 환경 승급 검증 뒤 종료한다. |
+| `keep` | Issue를 OPEN으로 유지한다. 사유와 후속 위치가 필요하다. |
+| `handoff` | 다음 세션 또는 별도 작업으로 넘긴다. 사유와 후속 위치가 필요하다. |
+
+원격 상태가 OPEN인데 결정이 없거나, `keep`·`handoff`에 사유와 후속 위치가 없으면 HCP 세션을 `closing`으로 전환하기 전에 세션정리를 차단한다. Backlog 상태는 Issue 결산과 독립적이며 Deferred 또는 분리된 후속 Backlog가 남아 있어도 완료된 Issue를 종료할 수 있다.
+
+Issue 종료는 `#세션정리`에서만 가능하다. `--verified-issue`는 해당 OPEN Issue를 `close`로 명시한다.
 
 ```powershell
 --verified-issue 73
 ```
 
-검증된 종료 후보가 없으면 Issue 종료 단계에서 `no verified issue close candidate`로 중단한다.
+`keep`과 `handoff`는 `이슈번호|사유|후속 위치` 형식으로 지정한다.
+
+```powershell
+--keep-issue "74|외부 승인 대기|BLG-031" `
+--handoff-issue "75|다음 세션에서 별도 검증|025_HCP_후속검증"
+```
+
+`close` 대상이 없고 모든 관련 Issue가 `closed`·`keep`·`handoff`로 결산된 경우 Issue 종료 명령은 실행하지 않는다. 다만 OPEN `keep`·`handoff` Issue에는 회고 marker, PR 머지, 환경 승급 검증이 끝난 최종 Issue 결산 단계에서 결정·사유·후속 위치를 댓글로 남긴다. `close` Issue는 같은 단계에서 결산 댓글과 함께 종료한다.
+
+회고와 다음 세션 인계에는 관련 Issue별 상태·결정·사유·후속 위치를 기록하며, 추천 다음 작업 프롬프트는 복사 가능한 `text` 코드 블록으로 구분한다. 이 블록에는 `keep`·`handoff` Issue의 사유와 후속 위치를 자동으로 포함한다.
+
+`keep`·`handoff` 댓글에는 세션·Issue·결정과 결산 내용 digest로 구성한 marker를 기록한다. 동일 marker가 이미 있으면 재실행에서 댓글을 재사용하고, 사유 또는 후속 위치가 변경되어 digest가 달라지면 새 결산 내용을 반영한다. 여러 Issue 중 후속 Issue 처리에 재시도 가능한 실패가 발생하면 recovery report의 `completed issue settlements`에 이미 반영된 Issue 번호를 기록하고 HCP 세션을 `active`로 복구한다. 재실행은 기존 marker 댓글을 건너뛴 뒤 남은 Issue부터 처리할 수 있다.
+
+Issue 결산 직전까지 회고 생성·PR 머지·환경 승급이 완료된 경우에는 HCP 세션 runtime의 `sessionCloseCheckpoint`에 회고 경로, PR 번호, 승급 commit과 대상 브랜치, 완료된 Issue 결산 번호를 저장한다. 프로세스를 다시 시작한 뒤 `#세션정리`를 재실행하면 회고 파일 존재, PR `MERGED`, 대상 브랜치 SHA를 검증하고 성공한 경우 앞선 Git·PR·승급 단계를 반복하지 않고 `close_issue`부터 재개한다. checkpoint 검증 실패는 새 회고나 PR을 만들지 않고 세션을 `active`로 복구해 증거 보정을 요구한다. 세션정리가 성공하면 checkpoint를 삭제한다.
+
+재실행에서는 checkpoint에 저장된 `close`·`keep`·`handoff` 결정과 사유·후속 위치를 복원하되 관련 Issue의 원격 OPEN/CLOSED 상태는 항상 다시 조회한다. 따라서 원격 처리는 성공했지만 CLI 응답만 실패한 경우 CLOSED 상태를 확인해 같은 Issue 종료를 반복하지 않는다.
+
+checkpoint 검증 중 GitHub 또는 Git 명령이 실패하면 예외를 CLI 밖으로 전파하지 않고 failure category와 `retryable`을 포함한 recovery report를 생성하며 세션을 `active`로 복구한다. Issue 결산 실패 뒤 checkpoint 저장까지 실패한 경우에도 기존 checkpoint를 덮어쓰지 않고 세션을 `active`로 복구하며, checkpoint 저장소를 보정하기 전에는 즉시 재시도할 수 없는 실패로 기록한다.
+
+marker 조회는 GitHub Issue comment API를 `per_page=100`, `--paginate`, `--slurp`로 끝까지 조회하여 오래된 marker도 재사용할 수 있게 한다.
 
 ## 작업 이력
 

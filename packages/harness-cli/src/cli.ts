@@ -19,7 +19,7 @@ import { runDbBaseline } from "./db/db-baseline.ts";
 import { runDbValidate } from "./db/db-validate.ts";
 import { runDictionaryList } from "./db/dictionary.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
-import { beginSessionCloseState, buildSessionCloseReport, completeSessionCloseState, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, executeSessionClose, parseSessionCloseArgs } from "./flows/session-close.ts";
+import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, enrichSessionCloseInputWithIssueSettlement, parseSessionCloseArgs, runSessionCloseExecution } from "./flows/session-close.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
 import { readProjectPreflight } from "./flows/project-preflight.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
@@ -80,7 +80,7 @@ function printUsage(): void {
   console.log(`Usage:
   jkadh session start [project_id]
   jkadh project preflight <project_id>
-  jkadh session close [--execute --verified-issue <number> --reuse-open-pr]
+  jkadh session close [--execute --verified-issue <number> --keep-issue <number|reason|follow-up> --handoff-issue <number|reason|follow-up> --reuse-open-pr]
   jkadh task start [--execute --issue-title <title> --branch <branch>]
   jkadh task process [--execute --session-id <id> --task-id <id>]
   jkadh task close [--execute --path <path> --message <message> --pr-title <title> --base dev]
@@ -199,8 +199,11 @@ async function run(argv: string[]): Promise<number> {
 
   if (scope === "session" && command === "close") {
     const repoRoot = resolveGitRoot(process.cwd());
-    const input = enrichSessionCloseInputWithAutoStatus(
-      enrichSessionCloseInputWithHcpState(parseSessionCloseArgs(argv.slice(2)), repoRoot),
+    const input = enrichSessionCloseInputWithIssueSettlement(
+      enrichSessionCloseInputWithAutoStatus(
+        enrichSessionCloseInputWithHcpState(parseSessionCloseArgs(argv.slice(2)), repoRoot),
+        repoRoot
+      ),
       repoRoot
     );
     const report = buildSessionCloseReport(input);
@@ -212,14 +215,13 @@ async function run(argv: string[]): Promise<number> {
     });
     console.log(report.markdown);
     if (input.execution?.enabled) {
-      const sessionState = beginSessionCloseState(input, repoRoot);
+      const { sessionState, execution } = runSessionCloseExecution(input, repoRoot);
       if (sessionState.status === "blocked") {
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), sessionState.detail));
         return 2;
       }
-      const execution = executeSessionClose(sessionState.executionInput, repoRoot);
+      if (!execution) return 2;
       console.log(execution.markdown);
-      completeSessionCloseState(repoRoot, sessionState.sessionId, execution.status, execution.recovery);
       if (sessionState.sessionId) {
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, sessionState.sessionId)));
       }

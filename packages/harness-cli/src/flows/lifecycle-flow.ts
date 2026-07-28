@@ -57,7 +57,7 @@ const flows: Record<HarnessTag, LifecycleFlow> = {
   session_close: {
     tag: "session_close",
     command: "session close",
-    responsibility: "Update session retrospective documents, unresolved work documents, and close verified issues.",
+    responsibility: "Update session retrospective documents, unresolved work documents, and settle related issues as closed/close/keep/handoff.",
     checks: ["completed tasks", "session name update", "issue update", "backlog issue PR remainder", "retrospective", "next session handoff"],
     writeActions: ["close_issue"]
   }
