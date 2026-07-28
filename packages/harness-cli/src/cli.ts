@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
-import { createBacklogDocument } from "./docs/backlog-document.ts";
+import { createBacklogDocument, findBacklogDocumentByMarker } from "./docs/backlog-document.ts";
 import { hasBacklogIndexEntry, parseBacklogIndex } from "./docs/backlog-index.ts";
 import { parseRetrospectiveDetail } from "./docs/retrospective-detail.ts";
 import { parseLatestRetrospective } from "./docs/retrospective-index.ts";
@@ -33,7 +33,12 @@ import { buildSessionPlan } from "./session/session-plan.ts";
 import { approveLoopCondition, beginLoopWorkItemImplementation, buildRollbackReport, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, validateWorkItems, type LoopWorkItemDefinition } from "./state/loop-state.ts";
 import {
   addHcpBacklog,
+  addHcpWorkItem,
+  applyPendingHcpWorkFeedback,
   addHcpTask,
+  buildHcpWorkItemGraph,
+  buildHcpWorkItemMermaid,
+  buildHcpWorkChangeResponse,
   buildHcpStateSummary,
   cleanupArchivedSessions,
   createHcpSession,
@@ -45,15 +50,21 @@ import {
   recordHcpTaskProcessEvidence,
   recordHcpTaskRecoveryEvidence,
   recordHcpLifecyclePolicyEvidence,
+  recordHcpWorkFeedback,
+  requireHcpWorkChangeSetAfter,
   resolveActiveSession,
   resolveHcpSourceBacklogs,
+  syncHcpSessionWorkItems,
   transitionHcpTaskPhase,
   updateHcpTaskBranch,
   updateHcpTaskPullRequest,
   updateHcpBacklog,
   updateHcpSession,
   updateHcpTask,
-  updateHcpTaskTitle
+  updateHcpTaskRelations,
+  updateHcpTaskTitle,
+  updateHcpWorkItem,
+  type HcpWorkItemStatus
 } from "./state/session-state.ts";
 import { buildHarnessTagExecutionOrder, formatHarnessTagExecutionOrder, parseHarnessTagCommand } from "./tags/tag-adapter.ts";
 
@@ -83,6 +94,7 @@ function printUsage(): void {
   jkadh hcp pr update --session-id <id> --task-id <id> --pr <number> --title <title>
   jkadh hcp branch update --session-id <id> --task-id <id> --branch-name <name>
   jkadh hcp backlog add|update|delete
+  jkadh hcp work add|update|graph
   jkadh hcp archived cleanup [--older-than-days 90 --keep 20 --dry-run]
   jkadh db check
   jkadh db migrate [--dry-run|--execute]
@@ -253,6 +265,17 @@ async function run(argv: string[]): Promise<number> {
             buildHcpStateSummary(repoRoot, input.sessionId),
             `작업 단계: 준비단계 완료; 구현상태: 구현 대기; registered task: ${task.taskId}`
           ));
+          applyPendingHcpWorkFeedback(repoRoot, input.sessionId ?? evidenceSessionId);
+          const previousWorkChangeCount = readSessionById(repoRoot, input.sessionId ?? evidenceSessionId).workChangeSets?.length ?? 0;
+          syncHcpSessionWorkItems(repoRoot, {
+            sessionId: input.sessionId ?? evidenceSessionId,
+            sourceCommand: "task_start",
+            sourceTaskId: task.taskId,
+            items: [{ title: task.taskName, status: "ready", reason: "task start response automatically registered" }],
+            excludedSuggestions: ["issue and branch creation commands"]
+          });
+          const workChange = requireHcpWorkChangeSetAfter(repoRoot, input.sessionId ?? evidenceSessionId, "task_start", previousWorkChangeCount, task.taskId);
+          console.log(buildHcpWorkChangeResponse(readSessionById(repoRoot, input.sessionId ?? evidenceSessionId), workChange));
           recordHcpLifecyclePolicyEvidence(repoRoot, {
             sessionId: evidenceSessionId,
             taskId: task.taskId,
@@ -293,6 +316,23 @@ async function run(argv: string[]): Promise<number> {
           evaluatedPolicies: report.json.policyResults
         });
         if (report.status === "ready") transitionHcpTaskPhase(repoRoot, input.sessionId, input.taskId, "implementing");
+        if (report.status === "ready") {
+          const session = readSessionById(repoRoot, input.sessionId);
+          const task = session.tasks.find((candidate) => candidate.taskId === input.taskId);
+          if (task) {
+            applyPendingHcpWorkFeedback(repoRoot, input.sessionId);
+            const previousWorkChangeCount = readSessionById(repoRoot, input.sessionId).workChangeSets?.length ?? 0;
+            syncHcpSessionWorkItems(repoRoot, {
+              sessionId: input.sessionId,
+              sourceCommand: "task_process",
+              sourceTaskId: task.taskId,
+              items: [{ title: task.taskName, status: "active", reason: "task process response automatically registered" }],
+              excludedSuggestions: ["status checks and code discovery commands"]
+            });
+            const workChange = requireHcpWorkChangeSetAfter(repoRoot, input.sessionId, "task_process", previousWorkChangeCount, task.taskId);
+            console.log(buildHcpWorkChangeResponse(readSessionById(repoRoot, input.sessionId), workChange));
+          }
+        }
       }
       console.log(report.status === "ready"
         ? "# Task process execution\n\n- [pass] implementation boundary: ready; task remains active\n"
@@ -381,6 +421,16 @@ async function run(argv: string[]): Promise<number> {
             verificationResult: input.verificationResult ?? ""
           });
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), `closed task: ${task.taskId}`));
+          applyPendingHcpWorkFeedback(repoRoot, session.sessionId);
+          const previousWorkChangeCount = readSessionById(repoRoot, input.sessionId!).workChangeSets?.length ?? 0;
+          syncHcpSessionWorkItems(repoRoot, {
+            sessionId: input.sessionId!,
+            sourceCommand: "task_process",
+            sourceTaskId: task.taskId,
+            items: [{ title: task.taskName, status: "done", reason: "task close response automatically completed" }]
+          });
+          const workChange = requireHcpWorkChangeSetAfter(repoRoot, input.sessionId!, "task_process", previousWorkChangeCount, task.taskId);
+          console.log(buildHcpWorkChangeResponse(readSessionById(repoRoot, input.sessionId!), workChange));
         } catch (error) {
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), error instanceof Error ? error.message : "HCP task close state update failed"));
           return 2;
@@ -833,8 +883,18 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
     }
     if (target === "backlog" && action === "add") {
       if (options.document || !options["session-id"]) {
-        const result = createBacklogDocument(repoRoot, {
-          title: requiredOption(options, "title"),
+        const title = requiredOption(options, "title");
+        let session: ReturnType<typeof readSessionById> | undefined;
+        try {
+          session = options["session-id"] ? readSessionById(repoRoot, options["session-id"]) : resolveActiveSession(repoRoot);
+        } catch {
+          // Document Backlog can be created outside an active HCP session.
+        }
+        const responseMarker = session ? `HCP response-backlog:${session.sessionId}:${title.trim().toLowerCase().replace(/\s+/g, " ")}` : undefined;
+        const recovered = responseMarker ? findBacklogDocumentByMarker(repoRoot, responseMarker) : undefined;
+        const created = recovered ? undefined : createBacklogDocument(repoRoot, {
+          title,
+          marker: responseMarker,
           status: options.status,
           type: options.type,
           date: options.date,
@@ -847,6 +907,11 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
           expectedEffect: options["expected-effect"],
           criteria: options.criteria
         });
+        const result = created ?? {
+          ...recovered!,
+          title,
+          gate: { status: "pass" as const, detail: `reused backlog after HCP response-link retry: ${recovered!.filePath}` }
+        };
         console.log([
           "# Harness CLI backlog add",
           "",
@@ -859,6 +924,17 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
           `- [pass] backlog index: ${result.indexPath}`,
           `- [${result.gate.status}] ${result.gate.detail}`
         ].join("\n") + "\n");
+        if (session) {
+          applyPendingHcpWorkFeedback(repoRoot, session.sessionId);
+          const previousWorkChangeCount = readSessionById(repoRoot, session.sessionId).workChangeSets?.length ?? 0;
+          syncHcpSessionWorkItems(repoRoot, {
+            sessionId: session.sessionId,
+            sourceCommand: "backlog_add",
+            items: [{ title: `Backlog 등록: ${result.title}`, status: "done", reason: "backlog add response automatically registered", detail: `${result.backlogId} ${result.filePath}` }]
+          });
+          const workChange = requireHcpWorkChangeSetAfter(repoRoot, session.sessionId, "backlog_add", previousWorkChangeCount);
+          console.log(buildHcpWorkChangeResponse(readSessionById(repoRoot, session.sessionId), workChange));
+        }
         return 0;
       }
       const item = addHcpBacklog(repoRoot, {
@@ -872,6 +948,16 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
         buildHcpStateSummary(repoRoot, options["session-id"]),
         `added backlog: ${item.hcpBacklogId}; ${buildBacklogIndexSyncDetail(repoRoot, item)}`
       ));
+      const sessionId = requiredOption(options, "session-id");
+      applyPendingHcpWorkFeedback(repoRoot, sessionId);
+      const previousWorkChangeCount = readSessionById(repoRoot, sessionId).workChangeSets?.length ?? 0;
+      syncHcpSessionWorkItems(repoRoot, {
+        sessionId,
+        sourceCommand: "backlog_add",
+        items: [{ title: `Backlog 등록: ${item.title}`, status: "done", reason: "hcp backlog add response automatically registered", detail: item.backlogId ?? item.hcpBacklogId }]
+      });
+      const workChange = requireHcpWorkChangeSetAfter(repoRoot, sessionId, "backlog_add", previousWorkChangeCount);
+      console.log(buildHcpWorkChangeResponse(readSessionById(repoRoot, sessionId), workChange));
       return 0;
     }
     if (target === "backlog" && action === "update") {
@@ -894,6 +980,140 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
         reason: options.reason
       });
       console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `deleted backlog: ${item.hcpBacklogId}`));
+      return 0;
+    }
+    if (target === "task" && action === "relate") {
+      const task = updateHcpTaskRelations(repoRoot, {
+        sessionId: requiredOption(options, "session-id"),
+        taskId: requiredOption(options, "task-id"),
+        parentTaskId: options["parent-task-id"],
+        derivedFromTaskId: options["derived-from-task-id"],
+        dependsOnTaskIds: options["depends-on-task"] ? splitList(options["depends-on-task"]) : undefined,
+        reason: requiredOption(options, "reason")
+      });
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `updated task relations: ${task.taskId}`));
+      return 0;
+    }
+    if (target === "work" && action === "add") {
+      const item = addHcpWorkItem(repoRoot, {
+        sessionId: requiredOption(options, "session-id"),
+        title: requiredOption(options, "title"),
+        status: parseWorkItemStatus(options.status),
+        sourceTaskId: options["source-task-id"],
+        parentId: options["parent-id"],
+        derivedFromId: options["derived-from-id"],
+        dependsOnIds: options["depends-on"] ? splitList(options["depends-on"]) : [],
+        reason: options.reason,
+        detail: options.detail
+      });
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `added work item: ${item.workItemId} ${item.displayId}`));
+      return 0;
+    }
+    if (target === "work" && action === "update") {
+      const item = updateHcpWorkItem(repoRoot, {
+        sessionId: requiredOption(options, "session-id"),
+        workItemId: requiredOption(options, "work-item-id"),
+        title: options.title,
+        status: parseWorkItemStatus(options.status),
+        parentId: options["parent-id"],
+        derivedFromId: options["derived-from-id"],
+        dependsOnIds: options["depends-on"] ? splitList(options["depends-on"]) : undefined,
+        reason: options.reason,
+        detail: options.detail,
+        resolutionTaskId: options["resolution-task-id"],
+        backlogId: options["backlog-id"],
+        backlogPath: options["backlog-path"]
+      });
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, options["session-id"]), `updated work item: ${item.workItemId} [${item.status}]`));
+      return 0;
+    }
+    if (target === "work" && action === "decide") {
+      const sessionId = requiredOption(options, "session-id");
+      const workItemId = requiredOption(options, "work-item-id");
+      const decision = requiredOption(options, "decision");
+      const reason = requiredOption(options, "reason");
+      const session = readSessionById(repoRoot, sessionId);
+      const item = (session.workItems ?? []).find((candidate) => candidate.workItemId === workItemId);
+      if (!item) throw new Error(`HCP work item not found: ${workItemId}`);
+      if (decision === "cancel") {
+        updateHcpWorkItem(repoRoot, { sessionId, workItemId, status: "cancelled", reason, detail: options.detail });
+      } else if (decision === "task") {
+        const resolutionTaskId = requiredOption(options, "resolution-task-id");
+        const resolutionTask = session.tasks.find((task) => task.taskId === resolutionTaskId);
+        if (!resolutionTask) throw new Error(`HCP resolution task not found: ${resolutionTaskId}`);
+        updateHcpWorkItem(repoRoot, {
+          sessionId,
+          workItemId,
+          status: resolutionTask.status === "promoted" ? "done" : "deferred",
+          resolutionTaskId,
+          reason,
+          detail: resolutionTask.status === "promoted" ? "linked task promoted" : "linked task must be promoted before completion"
+        });
+      } else if (decision === "backlog") {
+        const marker = `HCP ${item.backlogCandidateId ?? `candidate:${item.workItemId}`}`;
+        const existing = findBacklogDocumentByMarker(repoRoot, marker);
+        const backlog = existing ?? createBacklogDocument(repoRoot, {
+          title: options.title ?? item.title,
+          source: marker,
+          content: options.content ?? `${item.title}을 Work Item ${item.workItemId}에서 승인된 Backlog로 전환한다.`,
+          dependency: item.sourceTaskId ?? "-"
+        });
+        if ("gate" in backlog && backlog.gate.status !== "pass") throw new Error(backlog.gate.detail);
+        updateHcpWorkItem(repoRoot, {
+          sessionId,
+          workItemId,
+          status: "backlogged",
+          backlogId: backlog.backlogId,
+          backlogPath: backlog.filePath,
+          reason,
+          detail: existing ? "reused existing backlog evidence" : "created and verified backlog document and index"
+        });
+      } else {
+        throw new Error(`invalid work item decision: ${decision}`);
+      }
+      const resolved = readSessionById(repoRoot, sessionId).workItems?.find((candidate) => candidate.workItemId === workItemId);
+      console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, sessionId), `decided work item: ${workItemId} -> ${resolved?.status}`));
+      return 0;
+    }
+    if (target === "work" && action === "graph") {
+      const session = readSessionById(repoRoot, requiredOption(options, "session-id"));
+      console.log(`${buildHcpWorkItemGraph(session)}\n\n${buildHcpWorkItemMermaid(session)}\n`);
+      return 0;
+    }
+    if (target === "work" && action === "sync") {
+      const sessionId = requiredOption(options, "session-id");
+      const sourceCommand = requiredOption(options, "source-command");
+      if (!["task_start", "task_process", "backlog_add"].includes(sourceCommand)) throw new Error(`invalid work sync source: ${sourceCommand}`);
+      const previousWorkChangeCount = readSessionById(repoRoot, sessionId).workChangeSets?.length ?? 0;
+      syncHcpSessionWorkItems(repoRoot, {
+        sessionId,
+        sourceCommand: sourceCommand as "task_start" | "task_process" | "backlog_add",
+        sourceTaskId: options["task-id"],
+        sourceTurnId: options["turn-id"],
+        items: parseResponseWorkItems(requiredOption(options, "items")),
+        excludedSuggestions: options.excluded ? options.excluded.split("||").map((value) => value.trim()).filter(Boolean) : []
+      });
+      const workChange = requireHcpWorkChangeSetAfter(
+        repoRoot,
+        sessionId,
+        sourceCommand as "task_start" | "task_process" | "backlog_add",
+        previousWorkChangeCount,
+        options["task-id"]
+      );
+      console.log(buildHcpWorkChangeResponse(readSessionById(repoRoot, sessionId), workChange));
+      return 0;
+    }
+    if (target === "work" && action === "feedback") {
+      const feedback = recordHcpWorkFeedback(repoRoot, {
+        sessionId: requiredOption(options, "session-id"),
+        workItemId: requiredOption(options, "work-item-id"),
+        title: options.title,
+        status: parseWorkItemStatus(options.status),
+        parentId: options["parent-id"],
+        dependsOnIds: options["depends-on"] ? splitList(options["depends-on"]) : undefined,
+        reason: requiredOption(options, "reason")
+      });
+      console.log(`# Session work feedback\n\n- feedback id: ${feedback.feedbackId}\n- status: pending\n- apply timing: next HCP task start, task process, or backlog add execution\n`);
       return 0;
     }
     if (target === "archived" && action === "cleanup") {
@@ -943,6 +1163,22 @@ function requiredOption(options: Record<string, string>, key: string): string {
     throw new Error(`missing required option: --${key}`);
   }
   return value;
+}
+
+function parseWorkItemStatus(value?: string): HcpWorkItemStatus | undefined {
+  if (!value) return undefined;
+  const statuses: HcpWorkItemStatus[] = ["candidate", "ready", "active", "done", "blocked", "deferred", "cancelled", "backlogged"];
+  if (!statuses.includes(value as HcpWorkItemStatus)) throw new Error(`invalid work item status: ${value}`);
+  return value as HcpWorkItemStatus;
+}
+
+function parseResponseWorkItems(value: string): Array<{ title: string; status: HcpWorkItemStatus; reason: string }> {
+  return value.split("||").map((entry) => {
+    const [statusValue, titleValue] = entry.split("::", 2).map((part) => part?.trim());
+    const status = parseWorkItemStatus(statusValue);
+    if (!status || !titleValue) throw new Error(`invalid response work item: ${entry}`);
+    return { title: titleValue, status, reason: "response work item automatically synchronized" };
+  });
 }
 
 function parseDbMigrateArgs(args: string[]): { execute?: boolean } {
