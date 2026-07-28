@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { hasBacklogIndexEntry } from "../docs/backlog-index.ts";
 import type { PolicyRemediationIteration, PolicyRemediationLoopStatus } from "../gates/policy-remediation-loop.ts";
 import type { HarnessStage, PolicyResult } from "../gates/stage-policy.ts";
 
@@ -8,6 +9,7 @@ export type HcpTaskStatus = "active" | "closed" | "promoted" | "blocked" | "fail
 export type HcpTaskPhase = "discovering" | "implementing" | "stabilizing" | "close_ready";
 export type HcpCriteriaStatus = "draft" | "provisional" | "frozen" | "superseded";
 export type HcpDiscoveryDisposition = "required" | "follow_up" | "rejected";
+export type HcpWorkItemStatus = "candidate" | "ready" | "active" | "done" | "blocked" | "deferred" | "cancelled" | "backlogged";
 
 export interface HcpCriteriaRevision {
   version: number;
@@ -60,6 +62,60 @@ export interface HcpBacklogItem {
   resolvedAt?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface HcpWorkItemEvidence {
+  status: HcpWorkItemStatus;
+  reason: string;
+  detail?: string;
+  recordedAt: string;
+}
+
+export interface HcpWorkItem {
+  workItemId: string;
+  displayId: string;
+  title: string;
+  status: HcpWorkItemStatus;
+  sourceTaskId?: string;
+  parentId?: string;
+  derivedFromId?: string;
+  dependsOnIds: string[];
+  backlogCandidateId?: string;
+  resolutionTaskId?: string;
+  backlogId?: string;
+  backlogPath?: string;
+  fingerprint?: string;
+  evidence: HcpWorkItemEvidence[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface HcpWorkChangeSet {
+  changeSetId: string;
+  sourceCommand: "task_start" | "task_process" | "backlog_add";
+  sourceTaskId?: string;
+  sourceTurnId?: string;
+  addedWorkItemIds: string[];
+  updatedWorkItemIds: string[];
+  reusedWorkItemIds: string[];
+  excludedSuggestions: string[];
+  recordedAt: string;
+}
+
+export interface HcpWorkFeedback {
+  feedbackId: string;
+  workItemId: string;
+  title?: string;
+  status?: HcpWorkItemStatus;
+  parentId?: string;
+  dependsOnIds?: string[];
+  reason: string;
+  statusOfFeedback: "pending" | "applied";
+  recordedAt: string;
+  appliedAt?: string;
+  applyAttempts?: number;
+  lastAttemptedAt?: string;
+  lastApplyError?: string;
 }
 
 export interface HcpChangeLogEntry {
@@ -115,6 +171,9 @@ export interface HcpTaskState {
   completionCriteria?: string;
   verificationMethod?: string;
   sourceBacklogIds?: string[];
+  parentTaskId?: string;
+  derivedFromTaskId?: string;
+  dependsOnTaskIds?: string[];
   pullRequest?: HcpLinkedPullRequest;
   closeEvidence?: HcpTaskCloseEvidence;
   processEvidence?: HcpTaskProcessEvidence[];
@@ -171,6 +230,9 @@ export interface HcpSessionState {
   status: HcpSessionStatus;
   linkedIssue?: HcpLinkedIssue;
   backlogItems: HcpBacklogItem[];
+  workItems?: HcpWorkItem[];
+  workChangeSets?: HcpWorkChangeSet[];
+  workFeedback?: HcpWorkFeedback[];
   tasks: HcpTaskState[];
   changeLog: HcpChangeLogEntry[];
   lifecyclePolicyEvidence?: HcpLifecyclePolicyEvidence[];
@@ -208,6 +270,19 @@ export interface AddHcpTaskInput {
   completionCriteria?: string;
   verificationMethod?: string;
   sourceBacklogIds?: string[];
+  parentTaskId?: string;
+  derivedFromTaskId?: string;
+  dependsOnTaskIds?: string[];
+  now?: Date;
+}
+
+export interface UpdateHcpTaskRelationsInput {
+  sessionId: string;
+  taskId: string;
+  parentTaskId?: string;
+  derivedFromTaskId?: string;
+  dependsOnTaskIds?: string[];
+  reason: string;
   now?: Date;
 }
 
@@ -311,6 +386,56 @@ export interface DeleteHcpBacklogInput {
   sessionId: string;
   hcpBacklogId: string;
   reason?: string;
+  now?: Date;
+}
+
+export interface AddHcpWorkItemInput {
+  sessionId: string;
+  title: string;
+  status?: HcpWorkItemStatus;
+  sourceTaskId?: string;
+  parentId?: string;
+  derivedFromId?: string;
+  dependsOnIds?: string[];
+  reason?: string;
+  detail?: string;
+  now?: Date;
+}
+
+export interface UpdateHcpWorkItemInput {
+  sessionId: string;
+  workItemId: string;
+  title?: string;
+  status?: HcpWorkItemStatus;
+  parentId?: string;
+  derivedFromId?: string;
+  dependsOnIds?: string[];
+  reason?: string;
+  detail?: string;
+  resolutionTaskId?: string;
+  backlogId?: string;
+  backlogPath?: string;
+  now?: Date;
+}
+
+export interface SyncHcpSessionWorkInput {
+  sessionId: string;
+  sourceCommand: HcpWorkChangeSet["sourceCommand"];
+  sourceTaskId?: string;
+  sourceTurnId?: string;
+  items: Array<{ title: string; status: HcpWorkItemStatus; reason: string; detail?: string; parentId?: string; dependsOnIds?: string[] }>;
+  excludedSuggestions?: string[];
+  now?: Date;
+}
+
+export interface RecordHcpWorkFeedbackInput {
+  sessionId: string;
+  workItemId: string;
+  title?: string;
+  status?: HcpWorkItemStatus;
+  parentId?: string;
+  dependsOnIds?: string[];
+  reason: string;
   now?: Date;
 }
 
@@ -543,11 +668,352 @@ export function deleteHcpBacklog(repoRoot: string, input: DeleteHcpBacklogInput)
   return item;
 }
 
+export function addHcpWorkItem(repoRoot: string, input: AddHcpWorkItemInput): HcpWorkItem {
+  const session = readSessionById(repoRoot, input.sessionId);
+  if (session.status !== "active") throw new Error(`HCP session cannot add work items in status ${session.status}`);
+  const workItems = session.workItems ?? [];
+  validateWorkItemLinks(session, undefined, input.sourceTaskId, input.parentId, input.derivedFromId, input.dependsOnIds ?? []);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const workItemId = `${session.agentId}_work_${session.sessionNumber}_${String(workItems.length + 1).padStart(3, "0")}`;
+  const status = input.status ?? "candidate";
+  const item: HcpWorkItem = {
+    workItemId,
+    displayId: nextWorkItemDisplayId(session, input.sourceTaskId, input.parentId),
+    title: requiredText(input.title, "Work item title"),
+    status,
+    sourceTaskId: input.sourceTaskId,
+    parentId: input.parentId,
+    derivedFromId: input.derivedFromId,
+    dependsOnIds: uniqueStrings(input.dependsOnIds ?? []),
+    backlogCandidateId: isBacklogCandidateStatus(status) ? `candidate:${workItemId}` : undefined,
+    evidence: [{ status, reason: input.reason?.trim() || "work item registered", detail: input.detail?.trim() || undefined, recordedAt: timestamp }],
+    createdAt: timestamp,
+    updatedAt: timestamp
+  };
+  validateWorkItemStatusTransition(repoRoot, session, item, status, {
+    sessionId: session.sessionId,
+    workItemId,
+    status,
+    reason: input.reason,
+    detail: input.detail
+  });
+  session.workItems = [...workItems, item];
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "work_item.add", item.workItemId, `${item.displayId} ${item.title}`);
+  writeSessionState(repoRoot, session);
+  return item;
+}
+
+export function updateHcpWorkItem(repoRoot: string, input: UpdateHcpWorkItemInput): HcpWorkItem {
+  const session = readSessionById(repoRoot, input.sessionId);
+  if (session.status !== "active") throw new Error(`HCP session cannot update work items in status ${session.status}`);
+  const item = resolveWorkItem(session, input.workItemId);
+  const parentId = input.parentId ?? item.parentId;
+  const derivedFromId = input.derivedFromId ?? item.derivedFromId;
+  const dependsOnIds = input.dependsOnIds ?? item.dependsOnIds;
+  validateWorkItemLinks(session, item.workItemId, item.sourceTaskId, parentId, derivedFromId, dependsOnIds);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const metadataChanged = input.title !== undefined || input.parentId !== undefined || input.derivedFromId !== undefined
+    || input.dependsOnIds !== undefined || input.resolutionTaskId !== undefined || input.backlogId !== undefined || input.backlogPath !== undefined;
+  if (input.title !== undefined) item.title = requiredText(input.title, "Work item title");
+  if (input.parentId !== undefined) item.parentId = input.parentId;
+  if (input.derivedFromId !== undefined) item.derivedFromId = input.derivedFromId;
+  if (input.dependsOnIds !== undefined) item.dependsOnIds = uniqueStrings(input.dependsOnIds);
+  if (input.resolutionTaskId !== undefined) {
+    if (!session.tasks.some((task) => task.taskId === input.resolutionTaskId)) throw new Error(`HCP resolution task not found: ${input.resolutionTaskId}`);
+    item.resolutionTaskId = input.resolutionTaskId;
+  }
+  if (input.backlogId !== undefined) item.backlogId = requiredText(input.backlogId, "Backlog id");
+  if (input.backlogPath !== undefined) item.backlogPath = requiredText(input.backlogPath, "Backlog path");
+  if (input.status && input.status !== item.status) {
+    validateWorkItemStatusTransition(repoRoot, session, item, input.status, input);
+    item.status = input.status;
+    item.evidence.push({
+      status: input.status,
+      reason: requiredText(input.reason, "Work item status change reason"),
+      detail: input.detail?.trim() || undefined,
+      recordedAt: timestamp
+    });
+    if (isBacklogCandidateStatus(input.status)) item.backlogCandidateId ??= `candidate:${item.workItemId}`;
+  } else if (metadataChanged) {
+    item.evidence.push({
+      status: item.status,
+      reason: requiredText(input.reason, "Work item change reason"),
+      detail: input.detail?.trim() || "work item metadata updated",
+      recordedAt: timestamp
+    });
+  }
+  item.updatedAt = timestamp;
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "work_item.update", item.workItemId, `${item.displayId} [${item.status}]`);
+  writeSessionState(repoRoot, session);
+  return item;
+}
+
+export function listHcpBacklogCandidates(session: HcpSessionState): HcpWorkItem[] {
+  return (session.workItems ?? []).filter((item) => isBacklogCandidateStatus(item.status));
+}
+
+export function listHcpUnfinishedWorkItems(session: HcpSessionState): HcpWorkItem[] {
+  return (session.workItems ?? []).filter((item) => !isTerminalWorkItemStatus(item.status));
+}
+
+export function syncHcpSessionWorkItems(repoRoot: string, input: SyncHcpSessionWorkInput): HcpWorkChangeSet {
+  const session = readSessionById(repoRoot, input.sessionId);
+  if (session.status !== "active") throw new Error(`HCP session cannot sync work items in status ${session.status}`);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const addedWorkItemIds: string[] = [];
+  const updatedWorkItemIds: string[] = [];
+  const reusedWorkItemIds: string[] = [];
+  for (const proposal of input.items) {
+    const fingerprint = workItemFingerprint(input.sourceTaskId, proposal.title, proposal.parentId);
+    const existing = (session.workItems ?? []).find((item) => (item.fingerprint ?? workItemFingerprint(item.sourceTaskId, item.title, item.parentId)) === fingerprint);
+    if (!existing) {
+      validateWorkItemLinks(session, undefined, input.sourceTaskId, proposal.parentId, undefined, proposal.dependsOnIds ?? []);
+      const workItemId = `${session.agentId}_work_${session.sessionNumber}_${String((session.workItems?.length ?? 0) + 1).padStart(3, "0")}`;
+      const added: HcpWorkItem = {
+        workItemId,
+        displayId: nextWorkItemDisplayId(session, input.sourceTaskId, proposal.parentId),
+        title: requiredText(proposal.title, "Work item title"),
+        status: proposal.status,
+        sourceTaskId: input.sourceTaskId,
+        parentId: proposal.parentId,
+        dependsOnIds: uniqueStrings(proposal.dependsOnIds ?? []),
+        backlogCandidateId: isBacklogCandidateStatus(proposal.status) ? `candidate:${workItemId}` : undefined,
+        fingerprint,
+        evidence: [{ status: proposal.status, reason: requiredText(proposal.reason, "Work item reason"), detail: proposal.detail?.trim() || undefined, recordedAt: timestamp }],
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      validateWorkItemStatusTransition(repoRoot, session, added, proposal.status, { sessionId: input.sessionId, workItemId, status: proposal.status, reason: proposal.reason, detail: proposal.detail });
+      session.workItems = [...(session.workItems ?? []), added];
+      appendChange(session, timestamp, "work_item.add", added.workItemId, `${added.displayId} ${added.title}`);
+      addedWorkItemIds.push(added.workItemId);
+      continue;
+    }
+    if (existing.status !== proposal.status) {
+      validateWorkItemStatusTransition(repoRoot, session, existing, proposal.status, { sessionId: input.sessionId, workItemId: existing.workItemId, status: proposal.status, reason: proposal.reason, detail: proposal.detail });
+      existing.status = proposal.status;
+      existing.updatedAt = timestamp;
+      existing.evidence.push({ status: proposal.status, reason: requiredText(proposal.reason, "Work item status change reason"), detail: proposal.detail?.trim() || undefined, recordedAt: timestamp });
+      if (isBacklogCandidateStatus(proposal.status)) existing.backlogCandidateId ??= `candidate:${existing.workItemId}`;
+      appendChange(session, timestamp, "work_item.update", existing.workItemId, `${existing.displayId} [${existing.status}]`);
+      updatedWorkItemIds.push(existing.workItemId);
+    } else {
+      reusedWorkItemIds.push(existing.workItemId);
+    }
+  }
+  const sequence = (session.workChangeSets?.length ?? 0) + 1;
+  const changeSet: HcpWorkChangeSet = {
+    changeSetId: `SWP-${session.sessionNumber}-${String(sequence).padStart(3, "0")}`,
+    sourceCommand: input.sourceCommand,
+    sourceTaskId: input.sourceTaskId,
+    sourceTurnId: input.sourceTurnId,
+    addedWorkItemIds,
+    updatedWorkItemIds,
+    reusedWorkItemIds,
+    excludedSuggestions: uniqueStrings(input.excludedSuggestions ?? []),
+    recordedAt: timestamp
+  };
+  session.workChangeSets = [...(session.workChangeSets ?? []), changeSet];
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "work_item.sync_response", changeSet.changeSetId, `${input.sourceCommand}: added=${addedWorkItemIds.length}, updated=${updatedWorkItemIds.length}, reused=${reusedWorkItemIds.length}`);
+  writeSessionState(repoRoot, session);
+  return changeSet;
+}
+
+export function requireHcpWorkChangeSetAfter(
+  repoRoot: string,
+  sessionId: string,
+  sourceCommand: HcpWorkChangeSet["sourceCommand"],
+  previousCount: number,
+  sourceTaskId?: string
+): HcpWorkChangeSet {
+  const session = readSessionById(repoRoot, sessionId);
+  const changeSets = session.workChangeSets ?? [];
+  if (changeSets.length !== previousCount + 1) {
+    throw new Error(`HCP response work change set missing: ${sourceCommand}`);
+  }
+  const changeSet = changeSets.at(-1)!;
+  if (changeSet.sourceCommand !== sourceCommand || changeSet.sourceTaskId !== sourceTaskId) {
+    throw new Error(`HCP response work change set mismatch: expected ${sourceCommand}/${sourceTaskId ?? "session"}`);
+  }
+  return changeSet;
+}
+
+export function buildHcpWorkChangeResponse(session: HcpSessionState, changeSet: HcpWorkChangeSet): string {
+  const byId = (id: string): HcpWorkItem | undefined => (session.workItems ?? []).find((item) => item.workItemId === id);
+  let graph = buildHcpWorkItemGraph(session);
+  for (const id of changeSet.addedWorkItemIds) {
+    const item = byId(id);
+    if (item) graph = graph.replace(`- ${item.displayId} [`, `- [NEW] ${item.displayId} [`);
+  }
+  const mermaid = buildHcpWorkItemMermaid(session);
+  return [
+    "## 이번 응답의 세션 작업 변경",
+    "",
+    `- change set: ${changeSet.changeSetId}`,
+    `- source: ${changeSet.sourceCommand}`,
+    `- 신규 등록: ${changeSet.addedWorkItemIds.map((id) => byId(id)?.displayId ?? id).join(", ") || "none"}`,
+    `- 상태 변경: ${changeSet.updatedWorkItemIds.map((id) => byId(id)?.displayId ?? id).join(", ") || "none"}`,
+    `- 기존 재사용: ${changeSet.reusedWorkItemIds.map((id) => byId(id)?.displayId ?? id).join(", ") || "none"}`,
+    `- 등록 제외: ${changeSet.excludedSuggestions.join(", ") || "none"}`,
+    "",
+    graph,
+    "",
+    mermaid
+  ].join("\n");
+}
+
+export function recordHcpWorkFeedback(repoRoot: string, input: RecordHcpWorkFeedbackInput): HcpWorkFeedback {
+  const session = readSessionById(repoRoot, input.sessionId);
+  resolveWorkItem(session, input.workItemId);
+  if (input.title === undefined && input.status === undefined && input.parentId === undefined && input.dependsOnIds === undefined) {
+    throw new Error("Work item feedback requires at least one correction field");
+  }
+  const timestamp = (input.now ?? new Date()).toISOString();
+  const feedback: HcpWorkFeedback = {
+    feedbackId: `SWF-${session.sessionNumber}-${String((session.workFeedback?.length ?? 0) + 1).padStart(3, "0")}`,
+    workItemId: input.workItemId,
+    title: input.title,
+    status: input.status,
+    parentId: input.parentId,
+    dependsOnIds: input.dependsOnIds,
+    reason: requiredText(input.reason, "Work item feedback reason"),
+    statusOfFeedback: "pending",
+    recordedAt: timestamp
+  };
+  session.workFeedback = [...(session.workFeedback ?? []), feedback];
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "work_item.feedback_pending", feedback.feedbackId, `${feedback.workItemId}: ${feedback.reason}`);
+  writeSessionState(repoRoot, session);
+  return feedback;
+}
+
+export function applyPendingHcpWorkFeedback(repoRoot: string, sessionId: string, now = new Date()): HcpWorkFeedback[] {
+  const original = readSessionById(repoRoot, sessionId);
+  const session = structuredClone(original);
+  if (session.status !== "active") throw new Error(`HCP session cannot apply work feedback in status ${session.status}`);
+  const pending = (session.workFeedback ?? []).filter((feedback) => feedback.statusOfFeedback === "pending");
+  if (!pending.length) return [];
+  const timestamp = now.toISOString();
+  // Apply every correction to an in-memory candidate first. Any validation error
+  // aborts before the single state write, so pending feedback remains untouched.
+  try {
+  for (const feedback of pending) {
+    const item = resolveWorkItem(session, feedback.workItemId);
+    const parentId = feedback.parentId ?? item.parentId;
+    const dependsOnIds = feedback.dependsOnIds ?? item.dependsOnIds;
+    validateWorkItemLinks(session, item.workItemId, item.sourceTaskId, parentId, item.derivedFromId, dependsOnIds);
+    if (feedback.status && feedback.status !== item.status) validateWorkItemStatusTransition(repoRoot, session, item, feedback.status, {
+      sessionId,
+      workItemId: item.workItemId,
+      status: feedback.status,
+      reason: feedback.reason
+    });
+    if (feedback.title !== undefined) item.title = requiredText(feedback.title, "Work item title");
+    if (feedback.parentId !== undefined) item.parentId = feedback.parentId;
+    if (feedback.dependsOnIds !== undefined) item.dependsOnIds = uniqueStrings(feedback.dependsOnIds);
+    if (feedback.status && feedback.status !== item.status) {
+      item.status = feedback.status;
+      if (isBacklogCandidateStatus(feedback.status)) item.backlogCandidateId ??= `candidate:${item.workItemId}`;
+    }
+    item.evidence.push({
+      status: item.status,
+      reason: feedback.reason,
+      detail: `applied feedback ${feedback.feedbackId}`,
+      recordedAt: timestamp
+    });
+    item.updatedAt = timestamp;
+    feedback.statusOfFeedback = "applied";
+    feedback.appliedAt = timestamp;
+    feedback.applyAttempts = (feedback.applyAttempts ?? 0) + 1;
+    feedback.lastAttemptedAt = timestamp;
+    delete feedback.lastApplyError;
+    appendChange(session, timestamp, "work_item.update", item.workItemId, `${item.displayId} [${item.status}]`);
+    appendChange(session, timestamp, "work_item.feedback_applied", feedback.feedbackId, feedback.workItemId);
+  }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    for (const feedback of original.workFeedback?.filter((candidate) => candidate.statusOfFeedback === "pending") ?? []) {
+      feedback.applyAttempts = (feedback.applyAttempts ?? 0) + 1;
+      feedback.lastAttemptedAt = timestamp;
+      feedback.lastApplyError = message;
+    }
+    original.updatedAt = timestamp;
+    appendChange(original, timestamp, "work_item.feedback_apply_failed", sessionId, message);
+    writeSessionState(repoRoot, original);
+    throw error;
+  }
+  session.updatedAt = timestamp;
+  writeSessionState(repoRoot, session);
+  return pending;
+}
+
+export function buildHcpWorkItemGraph(session: HcpSessionState): string {
+  const items = session.workItems ?? [];
+  const lines = ["## Session Task and Work Item Graph", ""];
+  const append = (item: HcpWorkItem, depth: number): void => {
+    const relations = [
+      item.dependsOnIds.length ? `depends: ${item.dependsOnIds.join(", ")}` : "",
+      item.derivedFromId ? `derived: ${item.derivedFromId}` : "",
+      item.backlogCandidateId && isBacklogCandidateStatus(item.status) ? `backlog-candidate: ${item.backlogCandidateId}` : ""
+    ].filter(Boolean);
+    lines.push(`${"  ".repeat(depth)}- ${item.displayId} [${item.status}] ${item.title}${relations.length ? ` (${relations.join("; ")})` : ""}`);
+    items.filter((candidate) => candidate.parentId === item.workItemId).forEach((child) => append(child, depth + 1));
+  };
+  session.tasks.forEach((task, index) => {
+    const relations = [
+      task.dependsOnTaskIds?.length ? `depends: ${task.dependsOnTaskIds.join(", ")}` : "",
+      task.derivedFromTaskId ? `derived: ${task.derivedFromTaskId}` : ""
+    ].filter(Boolean);
+    lines.push(`- T${index + 1} [${task.status}] ${task.taskName}${relations.length ? ` (${relations.join("; ")})` : ""}`);
+    items.filter((item) => item.sourceTaskId === task.taskId && !item.parentId).forEach((item) => append(item, 1));
+  });
+  items.filter((item) => !item.sourceTaskId && !item.parentId).forEach((item) => append(item, 0));
+  if (session.tasks.length === 0 && items.length === 0) lines.push("- none");
+  return lines.join("\n");
+}
+
+export function buildHcpWorkItemMermaid(session: HcpSessionState): string {
+  const items = session.workItems ?? [];
+  const lines = ["```mermaid", "flowchart TD"];
+  session.tasks.forEach((task, index) => lines.push(`  task_${index + 1}["T${index + 1} [${task.status}] ${escapeMermaid(task.taskName)}"]`));
+  session.tasks.forEach((task, index) => {
+    const parentIndex = session.tasks.findIndex((candidate) => candidate.taskId === task.parentTaskId);
+    const derivedIndex = session.tasks.findIndex((candidate) => candidate.taskId === task.derivedFromTaskId);
+    if (parentIndex >= 0) lines.push(`  task_${parentIndex + 1} --> task_${index + 1}`);
+    if (derivedIndex >= 0) lines.push(`  task_${derivedIndex + 1} -. derived .-> task_${index + 1}`);
+    (task.dependsOnTaskIds ?? []).forEach((dependencyId) => {
+      const dependencyIndex = session.tasks.findIndex((candidate) => candidate.taskId === dependencyId);
+      if (dependencyIndex >= 0) lines.push(`  task_${dependencyIndex + 1} -. depends .-> task_${index + 1}`);
+    });
+  });
+  items.forEach((item, index) => lines.push(`  work_${index + 1}["${item.displayId} [${item.status}] ${escapeMermaid(item.title)}"]`));
+  items.forEach((item, index) => {
+    const taskIndex = session.tasks.findIndex((task) => task.taskId === item.sourceTaskId);
+    const parentIndex = items.findIndex((candidate) => candidate.workItemId === item.parentId);
+    if (parentIndex >= 0) lines.push(`  work_${parentIndex + 1} --> work_${index + 1}`);
+    else if (taskIndex >= 0) lines.push(`  task_${taskIndex + 1} --> work_${index + 1}`);
+    item.dependsOnIds.forEach((dependencyId) => {
+      const dependencyIndex = items.findIndex((candidate) => candidate.workItemId === dependencyId);
+      if (dependencyIndex >= 0) lines.push(`  work_${dependencyIndex + 1} -. depends .-> work_${index + 1}`);
+    });
+    if (item.derivedFromId) {
+      const derivedIndex = items.findIndex((candidate) => candidate.workItemId === item.derivedFromId);
+      if (derivedIndex >= 0) lines.push(`  work_${derivedIndex + 1} -. derived .-> work_${index + 1}`);
+    }
+  });
+  lines.push("```");
+  return lines.join("\n");
+}
+
 export function addHcpTask(repoRoot: string, input: AddHcpTaskInput): HcpTaskState {
   const session = resolveActiveSession(repoRoot, input.sessionId, input.agentId);
   const now = input.now ?? new Date();
   const taskId = `${normalizeIdPart(input.agentId ?? session.agentId)}_task_${session.sessionNumber}_${nextTaskSequence(session)}`;
   const timestamp = now.toISOString();
+  validateTaskLinks(session, undefined, input.parentTaskId, input.derivedFromTaskId, input.dependsOnTaskIds ?? []);
   const task: HcpTaskState = {
     taskId,
     taskName: input.taskName,
@@ -559,6 +1025,9 @@ export function addHcpTask(repoRoot: string, input: AddHcpTaskInput): HcpTaskSta
     completionCriteria: input.completionCriteria,
     verificationMethod: input.verificationMethod,
     sourceBacklogIds: input.sourceBacklogIds,
+    parentTaskId: input.parentTaskId,
+    derivedFromTaskId: input.derivedFromTaskId,
+    dependsOnTaskIds: uniqueStrings(input.dependsOnTaskIds ?? []),
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -599,6 +1068,25 @@ export function updateHcpTask(repoRoot: string, input: UpdateHcpTaskInput): HcpT
     appendChange(session, timestamp, "task.record_close_evidence", task.taskId, `${task.closeEvidence.outcome}: ${task.closeEvidence.verificationResult}`);
   }
   session.updatedAt = timestamp;
+  writeSessionState(repoRoot, session);
+  return task;
+}
+
+export function updateHcpTaskRelations(repoRoot: string, input: UpdateHcpTaskRelationsInput): HcpTaskState {
+  const session = readSessionById(repoRoot, input.sessionId);
+  if (session.status !== "active") throw new Error(`HCP session cannot update task relations in status ${session.status}`);
+  const task = resolveTask(session, input.taskId);
+  const parentTaskId = input.parentTaskId ?? task.parentTaskId;
+  const derivedFromTaskId = input.derivedFromTaskId ?? task.derivedFromTaskId;
+  const dependsOnTaskIds = input.dependsOnTaskIds ?? task.dependsOnTaskIds ?? [];
+  validateTaskLinks(session, task.taskId, parentTaskId, derivedFromTaskId, dependsOnTaskIds);
+  task.parentTaskId = parentTaskId;
+  task.derivedFromTaskId = derivedFromTaskId;
+  task.dependsOnTaskIds = uniqueStrings(dependsOnTaskIds);
+  const timestamp = (input.now ?? new Date()).toISOString();
+  task.updatedAt = timestamp;
+  session.updatedAt = timestamp;
+  appendChange(session, timestamp, "task.update_relations", task.taskId, requiredText(input.reason, "Task relation change reason"));
   writeSessionState(repoRoot, session);
   return task;
 }
@@ -814,6 +1302,9 @@ export function buildHcpSessionHandoff(session: HcpSessionState): string {
   const activeTasks = session.tasks.filter((task) => task.status === "active");
   const closedTasks = session.tasks.filter((task) => task.status === "closed");
   const openBacklog = session.backlogItems.filter((item) => item.status === "open");
+  const workItems = session.workItems ?? [];
+  const unfinishedWorkItems = workItems.filter((item) => !isTerminalWorkItemStatus(item.status));
+  const backlogCandidates = listHcpBacklogCandidates(session);
   const next = openBacklog.length > 0
     ? `Next backlog: ${openBacklog.map((item) => item.backlogId ? `${item.backlogId} ${item.title}` : item.title).join("; ")}`
     : "Next backlog: none recorded in HCP state";
@@ -822,11 +1313,14 @@ export function buildHcpSessionHandoff(session: HcpSessionState): string {
     `Completed tasks: ${promotedTasks.length > 0 ? promotedTasks.map((task) => `${task.taskId} ${task.taskName}`).join("; ") : "none recorded"}.`,
     `Unfinished tasks: ${[...activeTasks, ...closedTasks].length > 0 ? [...activeTasks, ...closedTasks].map((task) => `${task.taskId} ${task.status}`).join("; ") : "none"}.`,
     `Linked issue: ${session.linkedIssue?.number ? `#${session.linkedIssue.number}` : "none"}.`,
+    `Session work items: ${workItems.filter((item) => item.status === "done").length} done; ${unfinishedWorkItems.length} unfinished.`,
+    `Backlog conversion candidates: ${backlogCandidates.length > 0 ? backlogCandidates.map((item) => `${item.backlogCandidateId} ${item.displayId}`).join("; ") : "none"}.`,
     next
   ].join(" ");
 }
 
 export function buildHcpSessionRetrospectiveSummary(session: HcpSessionState): string {
+  const backlogCandidates = listHcpBacklogCandidates(session);
   return [
     "## HCP Session State",
     "",
@@ -842,6 +1336,13 @@ export function buildHcpSessionRetrospectiveSummary(session: HcpSessionState): s
     ...session.tasks.map((task) => `  - ${task.taskId} [${task.status}] ${task.taskName}`),
     `- Backlog items: ${session.backlogItems.length}`,
     ...session.backlogItems.map((item) => `  - ${item.hcpBacklogId} [${item.status}] ${item.title}`),
+    "",
+    buildHcpWorkItemGraph(session),
+    "",
+    buildHcpWorkItemMermaid(session),
+    "",
+    `- Backlog conversion candidates: ${backlogCandidates.length}`,
+    ...backlogCandidates.map((item) => `  - ${item.backlogCandidateId} ${item.displayId} [${item.status}] ${item.title}`),
     ""
   ].join("\n");
 }
@@ -1029,6 +1530,146 @@ function resolveBacklog(session: HcpSessionState, hcpBacklogId: string): HcpBack
     throw new Error(`HCP backlog item not found: ${hcpBacklogId}`);
   }
   return item;
+}
+
+function resolveWorkItem(session: HcpSessionState, workItemId: string): HcpWorkItem {
+  const item = (session.workItems ?? []).find((candidate) => candidate.workItemId === workItemId);
+  if (!item) throw new Error(`HCP work item not found: ${workItemId}`);
+  return item;
+}
+
+function validateTaskLinks(session: HcpSessionState, taskId: string | undefined, parentTaskId: string | undefined, derivedFromTaskId: string | undefined, dependsOnTaskIds: string[]): void {
+  const resolveLinkedTask = (linkedId: string): HcpTaskState => {
+    const linked = session.tasks.find((task) => task.taskId === linkedId);
+    if (!linked) throw new Error(`HCP linked task not found: ${linkedId}`);
+    return linked;
+  };
+  for (const linkedId of [parentTaskId, derivedFromTaskId, ...dependsOnTaskIds].filter((value): value is string => Boolean(value))) {
+    if (linkedId === taskId) throw new Error(`HCP task cannot reference itself: ${linkedId}`);
+    resolveLinkedTask(linkedId);
+  }
+  if (taskId && parentTaskId) {
+    let cursor: string | undefined = parentTaskId;
+    while (cursor) {
+      if (cursor === taskId) throw new Error(`HCP task parent cycle detected: ${taskId}`);
+      cursor = resolveLinkedTask(cursor).parentTaskId;
+    }
+  }
+  if (taskId) {
+    const reaches = (candidateId: string, visited = new Set<string>()): boolean => {
+      if (candidateId === taskId) return true;
+      if (visited.has(candidateId)) return false;
+      visited.add(candidateId);
+      return (resolveLinkedTask(candidateId).dependsOnTaskIds ?? []).some((dependencyId) => reaches(dependencyId, visited));
+    };
+    if (dependsOnTaskIds.some((dependencyId) => reaches(dependencyId))) throw new Error(`HCP task dependency cycle detected: ${taskId}`);
+  }
+}
+
+function validateWorkItemLinks(
+  session: HcpSessionState,
+  workItemId: string | undefined,
+  sourceTaskId: string | undefined,
+  parentId: string | undefined,
+  derivedFromId: string | undefined,
+  dependsOnIds: string[]
+): void {
+  if (sourceTaskId && !session.tasks.some((task) => task.taskId === sourceTaskId)) throw new Error(`HCP source task not found: ${sourceTaskId}`);
+  for (const linkedId of [parentId, derivedFromId, ...dependsOnIds].filter((value): value is string => Boolean(value))) {
+    if (linkedId === workItemId) throw new Error(`HCP work item cannot reference itself: ${linkedId}`);
+    resolveWorkItem(session, linkedId);
+  }
+  if (workItemId && parentId) {
+    let cursor: string | undefined = parentId;
+    while (cursor) {
+      if (cursor === workItemId) throw new Error(`HCP work item parent cycle detected: ${workItemId}`);
+      cursor = resolveWorkItem(session, cursor).parentId;
+    }
+  }
+  if (workItemId) {
+    const reaches = (candidateId: string, visited = new Set<string>()): boolean => {
+      if (candidateId === workItemId) return true;
+      if (visited.has(candidateId)) return false;
+      visited.add(candidateId);
+      return resolveWorkItem(session, candidateId).dependsOnIds.some((dependencyId) => reaches(dependencyId, visited));
+    };
+    if (dependsOnIds.some((dependencyId) => reaches(dependencyId))) throw new Error(`HCP work item dependency cycle detected: ${workItemId}`);
+  }
+}
+
+function nextWorkItemDisplayId(session: HcpSessionState, sourceTaskId?: string, parentId?: string): string {
+  const items = session.workItems ?? [];
+  if (parentId) {
+    const parent = resolveWorkItem(session, parentId);
+    const sibling = items.filter((item) => item.parentId === parentId).length + 1;
+    return `${parent.displayId}.${sibling}`;
+  }
+  if (sourceTaskId) {
+    const taskIndex = session.tasks.findIndex((task) => task.taskId === sourceTaskId) + 1;
+    const sibling = items.filter((item) => item.sourceTaskId === sourceTaskId && !item.parentId).length + 1;
+    return `T${taskIndex}.${sibling}`;
+  }
+  return `S${items.filter((item) => !item.sourceTaskId && !item.parentId).length + 1}`;
+}
+
+function isBacklogCandidateStatus(status: HcpWorkItemStatus): boolean {
+  return ["candidate", "blocked", "deferred"].includes(status);
+}
+
+function isTerminalWorkItemStatus(status: HcpWorkItemStatus): boolean {
+  return ["done", "cancelled", "backlogged"].includes(status);
+}
+
+function validateWorkItemStatusTransition(
+  repoRoot: string,
+  session: HcpSessionState,
+  item: HcpWorkItem,
+  status: HcpWorkItemStatus,
+  input: UpdateHcpWorkItemInput
+): void {
+  if (["active", "done"].includes(status)) {
+    const unfinishedDependencies = item.dependsOnIds
+      .map((dependencyId) => resolveWorkItem(session, dependencyId))
+      .filter((dependency) => !isTerminalWorkItemStatus(dependency.status));
+    if (unfinishedDependencies.length > 0) throw new Error(`HCP work item dependencies are unfinished: ${unfinishedDependencies.map((dependency) => dependency.workItemId).join(", ")}`);
+  }
+  if (status === "done" && (input.resolutionTaskId ?? item.resolutionTaskId)) {
+    const resolutionTaskId = input.resolutionTaskId ?? item.resolutionTaskId;
+    const resolutionTask = session.tasks.find((task) => task.taskId === resolutionTaskId);
+    if (resolutionTask?.status !== "promoted") throw new Error(`HCP resolution task is not promoted: ${resolutionTaskId}`);
+  }
+  if (status === "backlogged" && !(input.backlogId ?? item.backlogId) && !(input.backlogPath ?? item.backlogPath)) {
+    throw new Error("Backlogged work item requires backlog id or path evidence");
+  }
+  if (status === "backlogged") {
+    const backlogId = input.backlogId ?? item.backlogId;
+    const backlogPath = input.backlogPath ?? item.backlogPath;
+    if (!backlogPath || !existsSync(join(repoRoot, backlogPath))) throw new Error(`Backlog document evidence not found: ${backlogPath ?? "missing path"}`);
+    const indexPath = join(repoRoot, "docs", "15.로그", "backlog", "README.md");
+    if (!existsSync(indexPath) || !hasBacklogIndexEntry(readFileSync(indexPath, "utf8"), { backlogId, path: backlogPath })) {
+      throw new Error(`Backlog index evidence not found: ${backlogId ?? backlogPath}`);
+    }
+    const marker = item.backlogCandidateId ?? `candidate:${item.workItemId}`;
+    if (!readFileSync(join(repoRoot, backlogPath), "utf8").includes(marker)) throw new Error(`Backlog source marker not found: ${marker}`);
+  }
+}
+
+function escapeMermaid(value: string): string {
+  return value.replace(/["\n\r]/g, " ").trim();
+}
+
+function requiredText(value: string | undefined, label: string): string {
+  const text = value?.trim();
+  if (!text) throw new Error(`${label} is required`);
+  return text;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function workItemFingerprint(sourceTaskId: string | undefined, title: string, parentId: string | undefined): string {
+  return [sourceTaskId ?? "session", parentId ?? "root", title.trim().toLowerCase().replace(/\s+/g, " ")].join("|");
 }
 
 function writeSessionState(repoRoot: string, session: HcpSessionState): void {

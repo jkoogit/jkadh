@@ -10,7 +10,7 @@ const closingRetrospectiveSummary = [
   "Session status at snapshot: closing",
   "Session final status after successful #세션정리: complete"
 ].join("\n");
-import { addHcpTask, createHcpSession, readSessionById, transitionHcpSessionStatus, updateHcpTask } from "../src/state/session-state.ts";
+import { addHcpTask, addHcpWorkItem, createHcpSession, readSessionById, transitionHcpSessionStatus, updateHcpTask } from "../src/state/session-state.ts";
 
 test("session close arg parser accepts closure fields and verified issues", () => {
   const input = parseSessionCloseArgs([
@@ -343,6 +343,39 @@ test("session close orchestration replaces a report summary after closing transi
   assert.doesNotMatch(state.executionInput.hcpRetrospectiveSummary ?? "", /operator-provided report summary/);
   completeSessionCloseState(repo, state.sessionId, "executed");
   assert.equal(readSessionById(repo, session.sessionId).status, "complete");
+});
+
+test("session close blocks before closing transition when a work item needs user disposition", () => {
+  const repo = mkdtempSync(join(tmpdir(), "harness-session-close-work-item-block-"));
+  const session = createHcpSession(repo, {
+    sessionNumber: "10",
+    sessionName: "010_Harness_work_item_gate"
+  });
+  const item = addHcpWorkItem(repo, {
+    sessionId: session.sessionId,
+    title: "unresolved follow-up",
+    status: "deferred",
+    reason: "user decision required"
+  });
+  const input = enrichSessionCloseInputWithHcpState({
+    sessionId: session.sessionId,
+    completedTasks: ["task promote"],
+    issueUpdate: "Issue updated",
+    remainingWork: "work item decision required",
+    retrospective: "RET ready",
+    handoff: "decide task, backlog, or cancellation",
+    unresolvedDocs: [],
+    verifiedIssueNumbers: [],
+    execution: { enabled: true }
+  }, repo);
+  const state = beginSessionCloseState(input, repo);
+  const report = buildSessionCloseReport(input);
+
+  assert.equal(state.status, "blocked");
+  assert.match(state.detail, new RegExp(`${item.workItemId} S1 deferred`));
+  assert.match(state.detail, /S1=task\|backlog\|cancel/);
+  assert.match(report.markdown, /natural-language feedback does not change HCP state/);
+  assert.equal(readSessionById(repo, session.sessionId).status, "active");
 });
 
 test("session close hcp state blocks unfinished active tasks", () => {

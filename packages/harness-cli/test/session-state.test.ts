@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { createBacklogDocument } from "../src/docs/backlog-document.ts";
 
 import {
   addHcpTask,
   addHcpBacklog,
+  addHcpWorkItem,
+  applyPendingHcpWorkFeedback,
   buildHcpSessionHandoff,
   buildHcpSessionRetrospectiveSummary,
+  buildHcpWorkItemGraph,
+  buildHcpWorkItemMermaid,
+  buildHcpWorkChangeResponse,
   buildHcpStateSummary,
   cleanupArchivedSessions,
   createHcpSession,
@@ -22,7 +28,10 @@ import {
   recordHcpTaskRecoveryEvidence,
   recordHcpLifecyclePolicyEvidence,
   readSessionById,
+  recordHcpWorkFeedback,
+  requireHcpWorkChangeSetAfter,
   resolveHcpSourceBacklogs,
+  syncHcpSessionWorkItems,
   linkHcpTaskLoop,
   transitionHcpSessionStatus,
   transitionHcpTaskPhase,
@@ -30,9 +39,217 @@ import {
   updateHcpTaskBranch,
   updateHcpTaskBoundary,
   updateHcpTaskPullRequest,
+  updateHcpWorkItem,
   updateHcpSession,
   updateHcpTask
 } from "../src/state/session-state.ts";
+
+test("hcp work feedback stays pending until the next tagged command applies it", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-work-feedback-"));
+  const session = createHcpSession(repo, { sessionNumber: "23", sessionName: "023_feedback" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "feedback task" });
+  const item = addHcpWorkItem(repo, {
+    sessionId: session.sessionId,
+    title: "original step",
+    status: "ready",
+    sourceTaskId: task.taskId,
+    reason: "response plan"
+  });
+
+  const feedback = recordHcpWorkFeedback(repo, {
+    sessionId: session.sessionId,
+    workItemId: item.workItemId,
+    title: "corrected step",
+    status: "active",
+    reason: "user correction"
+  });
+  let selected = readSessionById(repo, session.sessionId);
+  assert.equal(feedback.statusOfFeedback, "pending");
+  assert.equal(selected.workItems?.[0]?.title, "original step");
+
+  const applied = applyPendingHcpWorkFeedback(repo, session.sessionId, new Date("2026-07-28T01:00:00.000Z"));
+  selected = readSessionById(repo, session.sessionId);
+  assert.equal(applied[0]?.statusOfFeedback, "applied");
+  assert.equal(selected.workItems?.[0]?.title, "corrected step");
+  assert.equal(selected.workItems?.[0]?.status, "active");
+  assert.equal(selected.workFeedback?.[0]?.statusOfFeedback, "applied");
+});
+
+test("hcp work feedback batch is not persisted when a later correction is invalid", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-work-feedback-atomic-"));
+  const session = createHcpSession(repo, { sessionNumber: "23", sessionName: "023_feedback_atomic" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "feedback task" });
+  const first = addHcpWorkItem(repo, { sessionId: session.sessionId, title: "first", status: "ready", sourceTaskId: task.taskId });
+  const second = addHcpWorkItem(repo, { sessionId: session.sessionId, title: "second", status: "ready", sourceTaskId: task.taskId });
+  recordHcpWorkFeedback(repo, { sessionId: session.sessionId, workItemId: first.workItemId, title: "changed first", reason: "valid correction" });
+  recordHcpWorkFeedback(repo, { sessionId: session.sessionId, workItemId: second.workItemId, parentId: second.workItemId, reason: "invalid self parent" });
+
+  assert.throws(() => applyPendingHcpWorkFeedback(repo, session.sessionId), /cannot reference itself/);
+  const selected = readSessionById(repo, session.sessionId);
+  assert.equal(selected.workItems?.find((item) => item.workItemId === first.workItemId)?.title, "first");
+  assert.deepEqual(selected.workFeedback?.map((feedback) => feedback.statusOfFeedback), ["pending", "pending"]);
+  assert.deepEqual(selected.workFeedback?.map((feedback) => feedback.applyAttempts), [1, 1]);
+  assert.match(selected.workFeedback?.[0]?.lastApplyError ?? "", /cannot reference itself/);
+  assert.equal(selected.changeLog.at(-1)?.action, "work_item.feedback_apply_failed");
+});
+
+test("hcp response work sync persists neither items nor change set when a later proposal is invalid", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-response-sync-atomic-"));
+  const session = createHcpSession(repo, { sessionNumber: "23", sessionName: "023_sync_atomic" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "sync task" });
+  assert.throws(() => syncHcpSessionWorkItems(repo, {
+    sessionId: session.sessionId,
+    sourceCommand: "task_process",
+    sourceTaskId: task.taskId,
+    items: [
+      { title: "valid first", status: "done", reason: "valid" },
+      { title: "invalid second", status: "done", reason: "invalid", dependsOnIds: ["missing-work"] }
+    ]
+  }), /work item not found/);
+  const selected = readSessionById(repo, session.sessionId);
+  assert.equal(selected.workItems?.length ?? 0, 0);
+  assert.equal(selected.workChangeSets?.length ?? 0, 0);
+});
+
+test("hcp response gate rejects a missing change set and accepts the next recorded set", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-response-gate-"));
+  const session = createHcpSession(repo, { sessionNumber: "23", sessionName: "023_response_gate" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "response gate" });
+  assert.throws(() => requireHcpWorkChangeSetAfter(repo, session.sessionId, "task_process", 0, task.taskId), /change set missing/);
+  syncHcpSessionWorkItems(repo, {
+    sessionId: session.sessionId,
+    sourceCommand: "task_process",
+    sourceTaskId: task.taskId,
+    items: [{ title: "record response work", status: "done", reason: "gate evidence" }]
+  });
+  assert.equal(requireHcpWorkChangeSetAfter(repo, session.sessionId, "task_process", 0, task.taskId).changeSetId, "SWP-023-001");
+});
+
+test("hcp response work sync records delta and reuses fingerprints", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-response-work-sync-"));
+  const session = createHcpSession(repo, { sessionNumber: "23", sessionName: "023_response_sync" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "response task" });
+  const first = syncHcpSessionWorkItems(repo, {
+    sessionId: session.sessionId,
+    sourceCommand: "task_start",
+    sourceTaskId: task.taskId,
+    sourceTurnId: "turn-1",
+    items: [{ title: "implementation step", status: "ready", reason: "response plan" }],
+    excludedSuggestions: ["code search"]
+  });
+  const second = syncHcpSessionWorkItems(repo, {
+    sessionId: session.sessionId,
+    sourceCommand: "task_process",
+    sourceTaskId: task.taskId,
+    sourceTurnId: "turn-2",
+    items: [{ title: "implementation step", status: "active", reason: "response execution" }]
+  });
+  const third = syncHcpSessionWorkItems(repo, {
+    sessionId: session.sessionId,
+    sourceCommand: "task_process",
+    sourceTaskId: task.taskId,
+    items: [{ title: "implementation step", status: "active", reason: "same response repeated" }]
+  });
+  const selected = readSessionById(repo, session.sessionId);
+
+  assert.equal(first.addedWorkItemIds.length, 1);
+  assert.equal(second.updatedWorkItemIds.length, 1);
+  assert.equal(third.reusedWorkItemIds.length, 1);
+  assert.equal(selected.workItems?.length, 1);
+  assert.equal(selected.workChangeSets?.length, 3);
+  assert.match(buildHcpWorkChangeResponse(selected, first), /\[NEW\] T1\.1/);
+  assert.match(buildHcpWorkChangeResponse(selected, first), /등록 제외: code search/);
+});
+
+test("hcp session work items keep hierarchy, relations, evidence, and stable backlog candidates", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-session-work-items-"));
+  const session = createHcpSession(repo, {
+    sessionNumber: "23",
+    sessionName: "023_session_work_management",
+    now: new Date("2026-07-28T00:00:00.000Z")
+  });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "work item MVP" });
+  const followUpTask = addHcpTask(repo, {
+    sessionId: session.sessionId,
+    taskName: "derived task",
+    derivedFromTaskId: task.taskId,
+    dependsOnTaskIds: [task.taskId]
+  });
+  const root = addHcpWorkItem(repo, {
+    sessionId: session.sessionId,
+    title: "state model",
+    status: "ready",
+    sourceTaskId: task.taskId,
+    reason: "planned MVP step"
+  });
+  const childInput = {
+    sessionId: session.sessionId,
+    title: "session close summary",
+    status: "active" as const,
+    sourceTaskId: task.taskId,
+    parentId: root.workItemId,
+    derivedFromId: root.workItemId,
+    dependsOnIds: [root.workItemId],
+    reason: "implementation started"
+  };
+  assert.throws(() => addHcpWorkItem(repo, childInput), /dependencies are unfinished/);
+
+  updateHcpWorkItem(repo, {
+    sessionId: session.sessionId,
+    workItemId: root.workItemId,
+    status: "done",
+    reason: "unit tests passed",
+    detail: "state model verified"
+  });
+  const child = addHcpWorkItem(repo, childInput);
+  const deferred = updateHcpWorkItem(repo, {
+    sessionId: session.sessionId,
+    workItemId: child.workItemId,
+    status: "deferred",
+    reason: "requires a follow-up task"
+  });
+  const selected = readSessionById(repo, session.sessionId);
+  const firstSummary = buildHcpSessionRetrospectiveSummary(selected);
+  const secondSummary = buildHcpSessionRetrospectiveSummary(readSessionById(repo, session.sessionId));
+
+  assert.equal(root.displayId, "T1.1");
+  assert.equal(child.displayId, "T1.1.1");
+  assert.equal(deferred.backlogCandidateId, `candidate:${child.workItemId}`);
+  assert.match(buildHcpWorkItemGraph(selected), /T1\.1 \[done\] state model/);
+  assert.match(buildHcpWorkItemGraph(selected), /T1 \[active\] work item MVP/);
+  assert.match(buildHcpWorkItemMermaid(selected), /flowchart TD/);
+  assert.match(buildHcpWorkItemMermaid(selected), /depends/);
+  assert.match(buildHcpWorkItemMermaid(selected), /task_1 -. derived .-> task_2/);
+  assert.equal(followUpTask.dependsOnTaskIds?.[0], task.taskId);
+  assert.match(firstSummary, new RegExp(`candidate:${child.workItemId}`));
+  assert.equal(firstSummary, secondSummary);
+  assert.equal(selected.workItems?.length, 2);
+  assert.equal(selected.workItems?.[0].evidence.at(-1)?.detail, "state model verified");
+  const backlogRoot = join(repo, "docs", "15.로그", "backlog");
+  mkdirSync(backlogRoot, { recursive: true });
+  writeFileSync(join(backlogRoot, "README.md"), "| ID | 제목 | 상태 | 처리시점 | 우선순위 | 의존 | Issue | 문서 |\n|---|---|---|---|---|---|---|---|\n| BLG-001 | seed | Resolved | - | Low | - | - | - |\n");
+  const backlog = createBacklogDocument(repo, { title: "follow-up candidate", source: `HCP candidate:${child.workItemId}` });
+  const backlogged = updateHcpWorkItem(repo, {
+    sessionId: session.sessionId,
+    workItemId: child.workItemId,
+    status: "backlogged",
+    backlogId: backlog.backlogId,
+    backlogPath: backlog.filePath,
+    reason: "user approved backlog conversion"
+  });
+  assert.equal(backlogged.backlogCandidateId, `candidate:${child.workItemId}`);
+  assert.equal(backlogged.status, "backlogged");
+  assert.throws(() => updateHcpWorkItem(repo, {
+    sessionId: session.sessionId,
+    workItemId: root.workItemId,
+    parentId: child.workItemId
+  }), /parent cycle/);
+  assert.throws(() => updateHcpWorkItem(repo, {
+    sessionId: session.sessionId,
+    workItemId: root.workItemId,
+    dependsOnIds: [child.workItemId]
+  }), /dependency cycle/);
+});
 
 test("legacy task keeps implementing phase and close compatibility", () => {
   const repo = mkdtempSync(join(tmpdir(), "hcp-state-legacy-task-"));

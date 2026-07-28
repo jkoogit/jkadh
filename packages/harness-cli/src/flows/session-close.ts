@@ -7,7 +7,7 @@ import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 import { classifyGitHubCommandFailure, type GitHubFailureCategory } from "../github/command-failure.ts";
-import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, readSessionById, resolveActiveSession, transitionHcpSessionStatus } from "../state/session-state.ts";
+import { buildHcpSessionHandoff, buildHcpSessionRetrospectiveSummary, listHcpUnfinishedWorkItems, readSessionById, resolveActiveSession, transitionHcpSessionStatus } from "../state/session-state.ts";
 
 export interface SessionCloseInput {
   agentId?: string;
@@ -19,6 +19,7 @@ export interface SessionCloseInput {
   remainingWork?: string;
   autoStatus?: SessionCloseAutoStatus;
   stateBlockers?: string[];
+  workItemDecisions?: Array<{ workItemId: string; displayId: string; status: string; title: string; backlogCandidateId?: string }>;
   retrospective?: string;
   retrospectiveDocument?: string;
   retrospectiveDeferredReason?: string;
@@ -424,6 +425,15 @@ export function enrichSessionCloseInputWithHcpState(
     const blockers = session.tasks
       .filter((task) => task.status === "active" || task.status === "closed")
       .map((task) => `${task.taskId} ${task.status}`);
+    const workItemBlockers = listHcpUnfinishedWorkItems(session)
+      .map((item) => `${item.workItemId} ${item.displayId} ${item.status}`);
+    const workItemDecisions = listHcpUnfinishedWorkItems(session).map((item) => ({
+      workItemId: item.workItemId,
+      displayId: item.displayId,
+      status: item.status,
+      title: item.title,
+      backlogCandidateId: item.backlogCandidateId
+    }));
     return {
       ...input,
       sessionId: session.sessionId,
@@ -440,7 +450,8 @@ export function enrichSessionCloseInputWithHcpState(
       verifiedIssueNumbers: input.verifiedIssueNumbers.length > 0
         ? input.verifiedIssueNumbers
         : session.linkedIssue?.number ? [session.linkedIssue.number] : [],
-      stateBlockers: blockers.length > 0 ? blockers : input.stateBlockers
+      stateBlockers: [...blockers, ...workItemBlockers].length > 0 ? [...blockers, ...workItemBlockers] : input.stateBlockers,
+      workItemDecisions: workItemDecisions.length > 0 ? workItemDecisions : input.workItemDecisions
     };
   } catch {
     return input;
@@ -455,6 +466,18 @@ export function beginSessionCloseState(input: SessionCloseInput, cwd: string): {
 } {
   try {
     const session = resolveActiveSession(cwd, input.sessionId, input.agentId);
+    const unfinishedTasks = session.tasks.filter((task) => task.status === "active" || task.status === "closed");
+    const unfinishedWorkItems = listHcpUnfinishedWorkItems(session);
+    if (unfinishedTasks.length > 0 || unfinishedWorkItems.length > 0) {
+      const detail = [
+        ...unfinishedTasks.map((task) => `${task.taskId} ${task.status}`),
+        ...unfinishedWorkItems.map((item) => `${item.workItemId} ${item.displayId} ${item.status}`)
+      ].join("; ");
+      const decisions = unfinishedWorkItems.length > 0
+        ? `; decision required: ${unfinishedWorkItems.map((item) => `${item.displayId}=task|backlog|cancel`).join(", ")}; natural-language feedback does not change HCP state`
+        : "";
+      return { status: "blocked", sessionId: session.sessionId, detail: `session close requires all tasks and work items resolved: ${detail}${decisions}`, executionInput: input };
+    }
     transitionHcpSessionStatus(cwd, session.sessionId, "closing");
     return {
       status: "updated",
@@ -1018,6 +1041,12 @@ function issueUpdateDetail(input: SessionCloseInput): string {
 
 function buildDecisionRequired(input: SessionCloseInput, missing: string[], issueCloseReady: boolean): string[] {
   const decisions = [...missing];
+  for (const item of input.workItemDecisions ?? []) {
+    decisions.push(
+      `${item.displayId} ${item.workItemId} [${item.status}] ${item.title}: choose `
+      + `#태스크시작 후 decision=task, #백로그추가 후 decision=backlog, or decision=cancel; natural-language feedback does not change HCP state`
+    );
+  }
   if (!issueCloseReady) {
     decisions.push("verified issue close candidate");
   }

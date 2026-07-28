@@ -5,6 +5,7 @@ import { hasBacklogIndexEntry, parseBacklogIndex } from "./backlog-index.ts";
 
 export interface BacklogDocumentInput {
   title: string;
+  marker?: string;
   status?: string;
   type?: string;
   date?: string;
@@ -30,6 +31,20 @@ export interface BacklogDocumentResult {
     status: "pass" | "blocked";
     detail: string;
   };
+}
+
+export function findBacklogDocumentByMarker(repoRoot: string, marker: string): Pick<BacklogDocumentResult, "backlogId" | "filePath" | "indexPath" | "indexRef"> | undefined {
+  const indexPath = backlogIndexPath(repoRoot);
+  const entries = parseBacklogIndex(readFileSync(indexPath, "utf8"));
+  for (const entry of entries) {
+    const indexRef = entry.path.replace(/\\/g, "/");
+    const filePath = join("docs", "15.로그", "backlog", indexRef.replace(/^\.\//, "")).replace(/\\/g, "/");
+    const absolutePath = join(repoRoot, filePath);
+    if (existsSync(absolutePath) && readFileSync(absolutePath, "utf8").includes(marker)) {
+      return { backlogId: entry.id, filePath, indexPath: "docs/15.로그/backlog/README.md", indexRef };
+    }
+  }
+  return undefined;
 }
 
 export function createBacklogDocument(repoRoot: string, input: BacklogDocumentInput): BacklogDocumentResult {
@@ -131,6 +146,7 @@ function buildBacklogMarkdown(input: BacklogDocumentInput & { backlogId: string;
   return `# ${input.backlogId} ${input.title}
 
 > Backlog ID: ${input.backlogId}
+${input.marker ? `> HCP marker: ${input.marker}\n` : ""}
 > 상태: ${status}
 > 유형: ${type}
 > 생성일: ${input.date}
