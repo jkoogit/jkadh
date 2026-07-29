@@ -42,7 +42,9 @@ test("task promote review reports multiple promoted tasks and recommends session
   assert.match(review.markdown, /#169=CLOSED/);
   assert.match(review.markdown, /#501 dev<-task\/open/);
   assert.match(review.markdown, /branch alignment: aligned/);
-  assert.match(review.markdown, /```text\n#세션정리\n```/);
+  assert.match(review.markdown, new RegExp(`\`\`\`text\\n#세션정리\\{\\nsessionId: ${session.sessionId}`));
+  assert.match(review.markdown, /완료태스크: .*first task/);
+  assert.match(review.markdown, /PR제목: \[024\]_\(001\)_promotion_complete_세션정리/);
 });
 
 test("task promote review builds a copyable task-start prompt from the actual open session backlog", () => {
@@ -167,7 +169,8 @@ test("task promote orchestration persists promoted status before building the li
   assert.equal(readSessionById(repo, session.sessionId).tasks[0]?.status, "promoted");
   assert.ok(result.review);
   assert.match(result.review.markdown, new RegExp(`${task.taskId}=promoted`));
-  assert.match(result.review.markdown, /```text\n#세션정리\n```/);
+  assert.match(result.review.markdown, new RegExp(`\`\`\`text\\n#세션정리\\{\\nsessionId: ${session.sessionId}`));
+  assert.match(result.review.markdown, /constraint validation: pass/);
 });
 
 test("task promote orchestration preserves promotion when the status review itself throws", () => {
