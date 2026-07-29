@@ -2,7 +2,6 @@ import { execFileSync } from "node:child_process";
 
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
-import { formatCopyablePrompt } from "../reports/copyable-prompt.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 import type { HcpTaskCloseEvidence } from "../state/session-state.ts";
 
@@ -58,13 +57,6 @@ export interface TaskPromoteExecutionResult {
     status: "executed" | "blocked" | "skipped";
     detail: string;
   }[];
-}
-
-export interface NextWorkReviewInput {
-  issueNumber?: number;
-  openPullRequestCount?: number;
-  unfinishedTaskCount?: number;
-  nextPrompt?: string;
 }
 
 const blockedActions = ["promote_branch"];
@@ -306,30 +298,6 @@ const defaultCommandRunner: CommandRunner = {
   }
 };
 
-export function buildTaskPromoteNextWorkReview(input: NextWorkReviewInput = {}): string {
-  const nextPrompt = input.nextPrompt ?? [
-    "#태스크시작{",
-    "작업지시: HCP 태스크 테이블 생성",
-    "작업범위: hcp.harness_task와 hcp.harness_task_event 테이블을 migration, baseline, test에 추가하고 DSN-008 기준과 한글 COMMENT를 반영한다",
-    "제외범위: HCP PR/Backlog 테이블 생성, JSON↔DB write-store 전환, DSN-008 history snapshot",
-    "완료조건: task/task_event 테이블이 baseline과 migration에 반영되고 FK 없이 session_id/task_id 논리 참조 정책과 한글 COMMENT가 테스트로 확인된다",
-    "검증방법: npm test, npm run check, DB migration/baseline 관련 테스트",
-    "}"
-  ].join("\n");
-
-  return [
-    "## Next Work Review",
-    "",
-    `- current issue: ${input.issueNumber ? `#${input.issueNumber}` : "check session linked issue before closing"}`,
-    `- open PRs: ${input.openPullRequestCount ?? "check required"}`,
-    `- unfinished HCP tasks: ${input.unfinishedTaskCount ?? "check required"}`,
-    "- issue close: defer to #세션정리",
-    "- recommended next prompt:",
-    "",
-    formatCopyablePrompt(nextPrompt)
-  ].join("\n");
-}
-
 function buildExecutionResult(status: TaskPromoteExecutionResult["status"], steps: TaskPromoteExecutionResult["steps"]): TaskPromoteExecutionResult {
   const markdown = [
     "# Harness CLI task promote execution",
@@ -338,8 +306,7 @@ function buildExecutionResult(status: TaskPromoteExecutionResult["status"], step
     "",
     "## Steps",
     "",
-    ...(steps.length === 0 ? ["- [skipped] execution: not requested"] : steps.map((step) => `- [${step.status}] ${step.action}: ${step.detail}`)),
-    ...(status === "executed" ? ["", buildTaskPromoteNextWorkReview()] : [])
+    ...(steps.length === 0 ? ["- [skipped] execution: not requested"] : steps.map((step) => `- [${step.status}] ${step.action}: ${step.detail}`))
   ].join("\n");
 
   return {

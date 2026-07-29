@@ -2,7 +2,7 @@
 
 ## 현행 구현 기준
 
-2026-07-13 현재 채팅 태그 `#태스크승급`의 기본 동작은 실행모드다. 보고만 필요하면 `#태스크승급.보고`를 사용한다.
+2026-07-29 현재 채팅 태그 `#태스크승급`의 기본 동작은 실행모드다. 보고만 필요하면 `#태스크승급.보고`를 사용한다.
 
 `#태스크승급`은 `#태스크정리`에서 PR이 `dev`에 merge된 뒤, 그 `dev` 커밋을 `stg`, `main`으로 fast-forward 승급한다. PR 생성/merge는 하지 않고, Issue 종료도 하지 않는다.
 
@@ -12,12 +12,12 @@
 | 문서 유형 | 참고 |
 | 상태 | Draft |
 | 성숙도 | Candidate |
-| 버전 | v0.1 |
+| 버전 | v0.2 |
 | 소유자 | jk |
 | 작성 에이전트 | Codex |
 | 기준 브랜치 | main |
-| 작업 브랜치 | task_codex/064-harness-task-promote-execute |
-| 최종 수정일 | 2026-07-13 |
+| 작업 브랜치 | task_codex/169-hcp-work-item-backlog-issue-pr-dev-stg-main-text |
+| 최종 수정일 | 2026-07-29 |
 
 ## 목차
 
@@ -110,11 +110,18 @@ Issue 종료는 `#세션정리`에서만 가능하다. PR 생성과 머지는 `#
 
 승급 완료 보고의 다음 작업 리뷰에는 다음 항목을 포함한다.
 
-- `dev/stg/main` 일치 여부
-- 열린 PR 잔여 여부
-- 현재 Issue와 Issue 종료 판단 보류 여부
-- 세션 내 미완료 HCP task 여부
-- 추천 다음턴 프롬프트
+- HCP 세션의 전체 task 상태와 각 task에 연결된 Issue·PR
+- 전체 Work Item의 표시 ID·상태·제목
+- 전체 세션 Backlog의 ID·상태·제목
+- 세션 `linkedIssue`와 task `issueNumber`를 중복 제거한 관련 Issue의 원격 상태
+- 저장소의 열린 PR과 `origin/dev`, `origin/stg`, `origin/main` SHA 및 일치 여부
+- 실제 남은 task, 열린 세션 Backlog, 미완료 Work Item을 기준으로 선택한 추천 다음턴 프롬프트
+
+이 조회는 HCP task 상태를 `promoted`로 저장한 뒤 실행한다. 따라서 승급 직후 출력되는 task 상태는 승급 전 `closed`가 아니라 현재 `promoted` 상태다. Issue 또는 PR 원격 조회가 실패하면 해당 항목을 `unavailable` 또는 `UNKNOWN`으로 표시하고, 이미 성공한 승급과 HCP 상태 전환은 되돌리지 않는다. 현황 리뷰 자체의 렌더링이 실패해도 승급 결과를 보존하고 CLI 성공 결과와 분리된 비치명적 리뷰 실패로 보고한다.
+
+남은 task가 이미 등록되어 있으면 중복 `#태스크시작` 대신 상태에 맞는 명령을 제안한다. `active`는 `#태스크처리`, `closed`는 `#태스크승급`, `blocked`·`failed`는 상태 복구를 포함한 `#태스크처리` 대상이다. 새 작업 후보인 열린 세션 Backlog 또는 미완료 Work Item이 있으면 세션 ID와 후보 ID·제목·범위를 반영한 `#태스크시작{...}`을 생성한다. `deferred` Work Item은 즉시 시작할 후보에서 제외한다. 후보가 없으면 `#세션정리`를 제안한다. 모든 추천 프롬프트는 별도의 `text` 코드 블록으로 출력하며 고정 예시 작업은 사용하지 않는다.
+
+원격 Issue·PR JSON은 필수 필드와 타입을 검증한다. 잘못된 응답은 현황 생성 예외로 전파하지 않고 해당 조회를 사용할 수 없는 상태로 표시한다. 승급 후 GitHub 조회와 원격 브랜치 조회에는 15초 제한시간을 적용해 응답이 없는 외부 명령 때문에 승급 응답이 무기한 대기하지 않도록 한다.
 
 `#태스크정리` 단계에서는 다음 권장 명령을 `#태스크승급`으로 제한한다. 실제 다음 업무 후보와 붙여넣기 가능한 `#태스크시작{...}` 프롬프트는 승급 완료 후 제안한다.
 
@@ -126,5 +133,7 @@ Issue 종료는 `#세션정리`에서만 가능하다. PR 생성과 머지는 `#
 | 2026-07-15 | [#97](https://github.com/jkoogit/jkadh/issues/97) | Codex | GPT-5 | CTO | jk / Codex | Update | 승급 완료 후 다음 작업 리뷰와 추천 다음턴 프롬프트 기준 추가 |
 | 2026-07-21 | [#122](https://github.com/jkoogit/jkadh/issues/122) | Codex | GPT-5 | CTO | jk / Codex | Update | 단계별 policy registry와 HCP close evidence, PR, dev merge 대조 기준 추가 |
 | 2026-07-25 | [#127](https://github.com/jkoogit/jkadh/issues/127) | Codex | GPT-5 | CTO | jk / Codex | Update | policy version 이력과 PR merge commit·dev target commit 직접 관계 검증 반영 |
+| 2026-07-29 | [#169](https://github.com/jkoogit/jkadh/issues/169) | Codex | GPT-5 | CTO | jk / Codex | Update | 승급 후 실제 HCP task·Work Item·Backlog·Issue·PR·브랜치 현황과 동적 복사용 다음 프롬프트 출력 반영 |
+| 2026-07-29 | [#169](https://github.com/jkoogit/jkadh/issues/169) | Codex | GPT-5 | CTO | jk / Codex | Revise | 리뷰 실패 격리, 상태별 다음 명령, deferred 후보 제외, 원격 응답 검증과 조회 timeout 보완 |
 
 [목차로 이동](#목차)
