@@ -1,6 +1,9 @@
 import { runBoundedGitCommand, runBoundedGitHubCommand } from "../process/bounded-command.ts";
-import { formatCopyablePrompt } from "../reports/copyable-prompt.ts";
+import { buildHarnessCompletionProtocol } from "./harness-completion-protocol.ts";
+import { buildHarnessScopeReview, type HarnessScopeReview } from "./harness-scope-review.ts";
 import {
+  buildHcpSessionHandoff,
+  buildHcpSessionRetrospectiveSummary,
   readSessionById,
   updateHcpTask,
   type HcpSessionState,
@@ -25,6 +28,7 @@ export interface TaskPromoteSessionReview {
   branches: Array<{ branch: "dev" | "stg" | "main"; commit?: string }>;
   branchLookup: "available" | "unavailable";
   aligned: boolean;
+  scopeReview: HarnessScopeReview;
   nextDecision: "continue_task" | "start_task" | "close_session";
   nextPrompt: string;
   markdown: string;
@@ -61,7 +65,8 @@ export function readTaskPromoteSessionReview(
   const issues = readRelatedIssues(session, cwd, runner);
   const pullRequests = readOpenPullRequests(cwd, runner);
   const branchState = readBranchAlignment(cwd, runner);
-  const next = selectNextPrompt(session);
+  const scopeReview = buildHarnessScopeReview(cwd, sessionId, "task_promote");
+  const next = selectNextPrompt(session, branchState.items.find((item) => item.branch === "dev")?.commit);
   const review = {
     sessionId,
     tasks: session.tasks.map((task) => ({
@@ -73,13 +78,19 @@ export function readTaskPromoteSessionReview(
     })),
     relatedIssues: issues.items, issueLookup: issues.status,
     openPullRequests: pullRequests.items, pullRequestLookup: pullRequests.status,
-    branches: branchState.items, branchLookup: branchState.status, aligned: branchState.aligned,
+    branches: branchState.items, branchLookup: branchState.status, aligned: branchState.aligned, scopeReview,
     nextDecision: next.decision, nextPrompt: next.prompt
   } satisfies Omit<TaskPromoteSessionReview, "markdown">;
   return { ...review, markdown: buildTaskPromoteSessionReviewMarkdown(review) };
 }
 
 export function buildTaskPromoteSessionReviewMarkdown(review: Omit<TaskPromoteSessionReview, "markdown">): string {
+  const protocol = buildHarnessCompletionProtocol({
+    tag: "task_promote",
+    outcome: "executed",
+    nextPrompt: review.nextPrompt,
+    detail: `state-derived decision: ${review.nextDecision}`
+  });
   return [
     "## Session Work Status Review", "", `- session: ${review.sessionId}`,
     `- tasks: ${summarize(review.tasks.map((item) => `${item.taskId}=${item.status}${item.issueNumber ? `,Issue#${item.issueNumber}` : ""}${item.pullRequestNumber ? `,PR#${item.pullRequestNumber}` : ""}`))}`,
@@ -89,8 +100,9 @@ export function buildTaskPromoteSessionReviewMarkdown(review: Omit<TaskPromoteSe
     `- open PRs (${review.pullRequestLookup}): ${summarize(review.openPullRequests.map((item) => `#${item.number} ${item.baseRefName ?? "?"}<-${item.headRefName ?? "?"} (${normalizePromptValue(item.title)})`))}`,
     `- dev/stg/main (${review.branchLookup}): ${summarize(review.branches.map((item) => `${item.branch}=${item.commit ?? "UNKNOWN"}`))}`,
     `- branch alignment: ${review.aligned ? "aligned" : "not aligned or unavailable"}`,
-    "", "## Next Task Review", "", `- decision: ${review.nextDecision}`, "- recommended next prompt:", "",
-    formatCopyablePrompt(review.nextPrompt)
+    "", review.scopeReview.markdown.trimEnd(),
+    "", "## Next Task Review", "", `- decision: ${review.nextDecision}`, "",
+    protocol.markdown.trimEnd()
   ].join("\n") + "\n";
 }
 
@@ -102,13 +114,21 @@ export function buildTaskPromoteSessionReviewFailureMarkdown(sessionId: string, 
   ].join("\n") + "\n";
 }
 
-function selectNextPrompt(session: HcpSessionState): { decision: TaskPromoteSessionReview["nextDecision"]; prompt: string } {
+function selectNextPrompt(session: HcpSessionState, devCommit?: string): { decision: TaskPromoteSessionReview["nextDecision"]; prompt: string } {
   const unfinishedTask = session.tasks.find((task) => task.status !== "promoted");
   if (unfinishedTask) {
     if (unfinishedTask.status === "closed") {
       return {
         decision: "continue_task",
-        prompt: ["#태스크승급{", `sessionId: ${session.sessionId}`, `taskId: ${unfinishedTask.taskId}`, "}"].join("\n")
+        prompt: [
+          "#태스크승급{",
+          `sessionId: ${session.sessionId}`,
+          `taskId: ${unfinishedTask.taskId}`,
+          `대상커밋: ${devCommit ?? "확인필요"}`,
+          "대상브랜치: stg,main",
+          `검증결과: ${normalizePromptValue(unfinishedTask.closeEvidence?.verificationResult ?? "확인필요")}`,
+          "}"
+        ].join("\n")
       };
     }
     return {
@@ -131,7 +151,34 @@ function selectNextPrompt(session: HcpSessionState): { decision: TaskPromoteSess
         "검증방법: npm test, npm run check, 관련 CLI 실행 테스트", "}"].join("\n")
     };
   }
-  return { decision: "close_session", prompt: "#세션정리" };
+  return { decision: "close_session", prompt: buildSessionCloseContinuationPrompt(session) };
+}
+
+function buildSessionCloseContinuationPrompt(session: HcpSessionState): string {
+  const relatedIssue = session.linkedIssue?.number ?? session.tasks.find((task) => task.issueNumber)?.issueNumber;
+  const completedTasks = session.tasks.filter((task) => task.status === "promoted")
+    .map((task) => `${task.taskId} ${normalizePromptValue(task.taskName)}`);
+  const remaining = [
+    ...session.tasks.filter((task) => task.status !== "promoted").map((task) => `${task.taskId}=${task.status}`),
+    ...session.backlogItems.filter((item) => item.status === "open").map((item) => `${item.backlogId ?? item.hcpBacklogId}=open`),
+    ...(session.workItems ?? []).filter((item) => !["done", "cancelled", "backlogged", "deferred"].includes(item.status))
+      .map((item) => `${item.displayId}=${item.status}`)
+  ];
+  return [
+    "#세션정리{",
+    `sessionId: ${session.sessionId}`,
+    `완료태스크: ${completedTasks.join("; ") || "없음"}`,
+    `세션명: ${normalizePromptValue(session.sessionName)}`,
+    `이슈현행화: ${completedTasks.length}개 promoted 태스크와 최종 결산 상태를 반영한다.`,
+    `남은작업: ${remaining.join("; ") || "없음"}`,
+    `회고: ${normalizePromptValue(buildHcpSessionRetrospectiveSummary(session))}`,
+    `다음세션인계: ${normalizePromptValue(buildHcpSessionHandoff(session))}`,
+    `커밋메시지: docs: close session ${session.sessionNumber}`,
+    `PR제목: [${session.sessionNumber}]_(001)_${normalizeTitleValue(session.sessionName)}_세션정리`,
+    `관련이슈: ${relatedIssue ?? "확인필요"}`,
+    `이슈제목: [${relatedIssue ?? session.sessionNumber}]_[HCP]_${normalizeTitleValue(session.sessionName)}`,
+    "}"
+  ].join("\n");
 }
 
 function isNextWorkCandidate(item: HcpWorkItem): boolean {
@@ -188,6 +235,10 @@ function summarize(items: string[]): string { return items.length > 0 ? items.jo
 
 function normalizePromptValue(value: string): string {
   return value.trim().replace(/```/g, "").replace(/[{}]/g, "").replace(/\s+/g, " ");
+}
+
+function normalizeTitleValue(value: string): string {
+  return normalizePromptValue(value).replace(/\s+/g, "_");
 }
 
 function parseIssueResponse(output: string, expectedNumber: number): { state?: string; title?: string } {

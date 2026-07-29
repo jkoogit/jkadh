@@ -94,3 +94,64 @@ test("loop execute completes implementing item before starting another ready ite
   assert.equal(updated.workItems[0].status, "completed");
   assert.equal(updated.workItems[1].status, "ready");
 });
+
+test("Loop approval, deletion, restoration, and rollback reports include the common scope review", () => {
+  const repo = mkdtempSync(join(tmpdir(), "hcp-loop-cli-review-"));
+  const session = createHcpSession(repo, { sessionNumber: "25", sessionName: "loop review" });
+  const task = addHcpTask(repo, { sessionId: session.sessionId, taskName: "loop review task" });
+  const definition = {
+    id: "work_001",
+    title: "review item",
+    dependencies: [] as string[],
+    completionConditions: [{ type: "manual_approval" as const, value: "approved", required: true }],
+    expectedResults: ["completed_with_approved_exception"],
+    errorCases: ["approval denied"],
+    allowedPaths: ["src/**"],
+    verificationCommands: ["git diff --check"]
+  };
+
+  const approvedLoop = createLoopRun(repo, {
+    sessionId: session.sessionId, taskId: task.taskId, title: "approval", objective: "review approval", workItems: [definition]
+  });
+  const approveOutput = execFileSync(process.execPath, [
+    "--experimental-strip-types", cliPath, "loop", "approve", "--loop-id", approvedLoop.loopId,
+    "--task-id", task.taskId, "--work-item-id", "work_001", "--condition-value", "approved", "--approved-by", "jk"
+  ], { cwd: repo, encoding: "utf8" });
+  assert.match(approveOutput, /Harness Scope Review/);
+  assert.match(approveOutput, /trigger: loop_approve/);
+  assert.match(approveOutput, /missing-work check required: no/);
+  assert.match(approveOutput, /Harness Completion Protocol/);
+  assert.match(approveOutput, /harness: loop_approve/);
+  assert.match(approveOutput, /#루프실행\{/);
+
+  const managedLoop = createLoopRun(repo, {
+    sessionId: session.sessionId, taskId: task.taskId, title: "managed", objective: "review lifecycle", workItems: [{ ...definition, id: "work_002" }]
+  });
+  const deleteOutput = execFileSync(process.execPath, [
+    "--experimental-strip-types", cliPath, "loop", "delete", "--loop-id", managedLoop.loopId,
+    "--task-id", task.taskId, "--reason", "superseded", "--exclusion-approved", "true"
+  ], { cwd: repo, encoding: "utf8" });
+  assert.match(deleteOutput, /trigger: loop_delete/);
+  assert.match(deleteOutput, /Global Document Backlog/);
+  assert.match(deleteOutput, /HCP Session Work Status/);
+  assert.match(deleteOutput, /missing-work check required: yes/);
+  assert.match(deleteOutput, /harness: loop_delete/);
+  assert.match(deleteOutput, /#태스크처리\{/);
+
+  const restoreOutput = execFileSync(process.execPath, [
+    "--experimental-strip-types", cliPath, "loop", "restore", "--loop-id", managedLoop.loopId, "--task-id", task.taskId
+  ], { cwd: repo, encoding: "utf8" });
+  assert.match(restoreOutput, /trigger: loop_restore/);
+  assert.match(restoreOutput, /status: items_found/);
+  assert.match(restoreOutput, /harness: loop_restore/);
+  assert.match(restoreOutput, /#루프실행\{/);
+
+  transitionLoop(repo, managedLoop.loopId, "paused");
+  const rollbackOutput = execFileSync(process.execPath, [
+    "--experimental-strip-types", cliPath, "loop", "rollback", "--report", "--loop-id", managedLoop.loopId, "--task-id", task.taskId
+  ], { cwd: repo, encoding: "utf8" });
+  assert.match(rollbackOutput, /trigger: loop_rollback/);
+  assert.match(rollbackOutput, /Missing Work Check/);
+  assert.match(rollbackOutput, /harness: loop_rollback/);
+  assert.match(rollbackOutput, /#루프롤백\{/);
+});

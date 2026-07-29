@@ -20,8 +20,10 @@ import { runDbValidate } from "./db/db-validate.ts";
 import { runDictionaryList } from "./db/dictionary.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildConversationRequestGate, type ConversationRequestKind, type ConversationScopeDecision } from "./flows/conversation-request.ts";
+import { buildHarnessCompletionProtocol, type HarnessCompletionOutcome, type HarnessCompletionTag } from "./flows/harness-completion-protocol.ts";
+import { buildHarnessScopeReview, type HarnessReviewTrigger } from "./flows/harness-scope-review.ts";
 import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, enrichSessionCloseInputWithIssueSettlement, parseSessionCloseArgs, runSessionCloseExecution } from "./flows/session-close.ts";
-import { buildSessionStartReport } from "./flows/session-start.ts";
+import { buildSessionStartReport, type SessionStartReport } from "./flows/session-start.ts";
 import { readProjectPreflight } from "./flows/project-preflight.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
 import { buildTaskProcessReport, parseTaskProcessArgs, type TaskProcessInput } from "./flows/task-process.ts";
@@ -67,9 +69,11 @@ import {
   updateHcpTaskRelations,
   updateHcpTaskTitle,
   updateHcpWorkItem,
+  type HcpSessionState,
+  type HcpTaskState,
   type HcpWorkItemStatus
 } from "./state/session-state.ts";
-import { buildHarnessTagExecutionOrder, formatHarnessTagExecutionOrder, parseHarnessTagCommand } from "./tags/tag-adapter.ts";
+import { buildHarnessTagExecutionOrder, expandHarnessTagBlockArgs, formatHarnessTagExecutionOrder, parseHarnessTagCommand } from "./tags/tag-adapter.ts";
 
 const requiredEnvNames = [
   "GITHUB_TOKEN",
@@ -151,6 +155,14 @@ async function run(argv: string[]): Promise<number> {
         ]
       });
       console.log(report.markdown);
+      printHarnessCompletionProtocol({
+        tag: "session_start",
+        outcome: "blocked",
+        missingItems: ["project access"],
+        nextPrompt: buildSessionStartOrder(sessionStartOptions.sessionNumber, sessionStartOptions.sessionName).match(/```text\n([\s\S]*?)\n```/)?.[1]
+          ?? "#세션시작{\n세션번호: 확인필요\n세션명: 확인필요\n에이전트: codex\n}",
+        detail: access.reason
+      });
       return 2;
     }
 
@@ -181,6 +193,18 @@ async function run(argv: string[]): Promise<number> {
       const sessionName = sessionStartOptions.sessionName;
       if (!sessionName) {
         console.log(buildSessionStartOrder(sessionStartOptions.sessionNumber, report.json.sessionPlan?.initialSessionName));
+        printHarnessCompletionProtocol({
+          tag: "session_start",
+          outcome: "blocked",
+          missingItems: ["session name"],
+          nextPrompt: [
+            "#세션시작{",
+            `세션번호: ${sessionStartOptions.sessionNumber ?? "확인필요"}`,
+            `세션명: ${report.json.sessionPlan?.initialSessionName ?? "확인필요"}`,
+            `에이전트: ${sessionStartOptions.agentId}`,
+            "}"
+          ].join("\n")
+        });
         return 2;
       }
       try {
@@ -190,13 +214,44 @@ async function run(argv: string[]): Promise<number> {
           sessionName
         });
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(projectPath, session.sessionId)));
+        printHarnessCompletionProtocol({
+          tag: "session_start",
+          outcome: "executed",
+          nextPrompt: buildSessionStartTaskPrompt(session, report),
+          detail: "세션 생성만 완료했으며 태스크 시작 또는 처리는 실행하지 않았다."
+        });
       } catch (error) {
         console.log(buildHcpStateMarkdown(
           buildHcpStateSummary(projectPath),
           error instanceof Error ? error.message : "HCP session creation failed"
         ));
+        printHarnessCompletionProtocol({
+          tag: "session_start",
+          outcome: "blocked",
+          missingItems: ["HCP session creation"],
+          nextPrompt: [
+            "#세션시작{",
+            `세션번호: ${sessionStartOptions.sessionNumber ?? "확인필요"}`,
+            `세션명: ${sessionName}`,
+            `에이전트: ${sessionStartOptions.agentId}`,
+            "}"
+          ].join("\n")
+        });
         return 2;
       }
+    } else {
+      printHarnessCompletionProtocol({
+        tag: "session_start",
+        outcome: report.status === "ready" ? "ready" : "blocked",
+        missingItems: report.status === "ready" ? [] : ["branch alignment"],
+        nextPrompt: [
+          "#세션시작{",
+          `세션번호: ${sessionStartOptions.sessionNumber ?? "확인필요"}`,
+          `세션명: ${sessionStartOptions.sessionName ?? report.json.sessionPlan?.initialSessionName ?? "확인필요"}`,
+          `에이전트: ${sessionStartOptions.agentId}`,
+          "}"
+        ].join("\n")
+      });
     }
     return 0;
   }
@@ -222,15 +277,57 @@ async function run(argv: string[]): Promise<number> {
       const { sessionState, execution } = runSessionCloseExecution(input, repoRoot);
       if (sessionState.status === "blocked") {
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), sessionState.detail));
+        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
+        printHarnessCompletionProtocol({
+          tag: "session_close",
+          outcome: "blocked",
+          missingItems: report.json.missing.length > 0 ? report.json.missing : [sessionState.detail],
+          nextPrompt: buildSessionClosePrompt(input.sessionId),
+          detail: sessionState.detail
+        });
         return 2;
       }
-      if (!execution) return 2;
+      if (!execution) {
+        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
+        printHarnessCompletionProtocol({
+          tag: "session_close",
+          outcome: "blocked",
+          missingItems: ["session close execution result"],
+          nextPrompt: buildSessionClosePrompt(input.sessionId)
+        });
+        return 2;
+      }
       console.log(execution.markdown);
       if (sessionState.sessionId) {
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, sessionState.sessionId)));
       }
+      if (execution.status === "executed" && sessionState.sessionId) {
+        const completedSession = readSessionById(repoRoot, sessionState.sessionId);
+        printHarnessScopeReviewSafely(repoRoot, sessionState.sessionId, "session_close");
+        printHarnessCompletionProtocol({
+          tag: "session_close",
+          outcome: "executed",
+          nextPrompt: buildNextSessionStartPrompt(completedSession, input.handoff),
+          detail: "회고·Issue 결산·세션정리 PR·브랜치 승급·최종 complete 반영 후 생성"
+        });
+      } else {
+        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
+        printHarnessCompletionProtocol({
+          tag: "session_close",
+          outcome: "blocked",
+          missingItems: report.json.missing.length > 0 ? report.json.missing : ["session close execution"],
+          nextPrompt: buildSessionClosePrompt(input.sessionId)
+        });
+      }
       return execution.status === "executed" ? 0 : 2;
     }
+    printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
+    printHarnessCompletionProtocol({
+      tag: "session_close",
+      outcome: report.status === "ready" ? "ready" : "blocked",
+      missingItems: report.json.missing,
+      nextPrompt: buildSessionClosePrompt(input.sessionId)
+    });
     return 0;
   }
 
@@ -289,14 +386,45 @@ async function run(argv: string[]): Promise<number> {
             outcome: "passed",
             evaluatedPolicies: report.json.policyResults
           });
+          printHarnessCompletionProtocol({
+            tag: "task_start",
+            outcome: "executed",
+            nextPrompt: buildTaskProcessPrompt(input.sessionId ?? evidenceSessionId, task),
+            detail: "Issue, 작업 브랜치, HCP 태스크 등록 완료"
+          });
         } catch (error) {
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), error instanceof Error ? error.message : "HCP task state registration failed"));
           console.log(buildTaskStartStateRegistrationRecovery(execution, input.sessionId, error));
+          printHarnessCompletionProtocol({
+            tag: "task_start",
+            outcome: "blocked",
+            missingItems: ["HCP task registration"],
+            nextPrompt: buildTaskStartPrompt({
+              ...input,
+              issueNumber: input.issueNumber ?? parseIssueNumberFromText(execution.markdown)
+            }),
+            detail: "기존 Issue와 브랜치를 재사용하는 상태 등록 복구가 필요하다."
+          });
           return 2;
         }
       }
+      if (execution.status !== "executed") {
+        printHarnessCompletionProtocol({
+          tag: "task_start",
+          outcome: "blocked",
+          missingItems: report.json.missing.length > 0 ? report.json.missing : ["task start execution"],
+          nextPrompt: buildTaskStartPrompt(input),
+          detail: execution.recovery?.recovery ?? "누락 또는 실행 차단 조건을 보완한다."
+        });
+      }
       return execution.status === "executed" ? 0 : 2;
     }
+    printHarnessCompletionProtocol({
+      tag: "task_start",
+      outcome: report.status === "ready" ? "ready" : "blocked",
+      missingItems: report.json.missing,
+      nextPrompt: buildTaskStartPrompt(input)
+    });
     return 0;
   }
 
@@ -344,6 +472,31 @@ async function run(argv: string[]): Promise<number> {
         ? "# Task process execution\n\n- [pass] implementation boundary: ready; task remains active\n"
         : "# Task process execution\n\n- [blocked] implementation boundary: run #태스크시작 or select the active task before modifying files\n");
     }
+    const taskProcessNextPrompt = report.status === "ready"
+      ? buildTaskClosePrompt(input.sessionId, input.taskId)
+      : input.sessionId && input.taskId
+        ? [
+          "#태스크처리{",
+          `sessionId: ${input.sessionId}`,
+          `taskId: ${input.taskId}`,
+          `작업내용: ${normalizePromptLine(report.json.remediation.nextAction ?? "차단 조건을 보완한다.")}`,
+          "}"
+        ].join("\n")
+        : buildTaskStartPrompt({
+          sessionId: input.sessionId,
+          workOrderId: "TASK-PROCESS-RECOVERY",
+          scope: report.json.remediation.nextAction ?? "활성 태스크를 다시 선정한다.",
+          outOfScope: "기존 완료 태스크의 중복 생성은 제외한다.",
+          completionCriteria: "활성 세션·태스크·등록 브랜치·작업 범위가 일치한다.",
+          verificationMethod: "#태스크처리 보고의 stage policies가 모두 pass인지 확인한다."
+        });
+    printHarnessCompletionProtocol({
+      tag: "task_process",
+      outcome: report.status === "ready" ? (input.execution?.enabled ? "executed" : "ready") : "blocked",
+      missingItems: report.status === "ready" ? [] : [report.json.remediation.nextAction ?? "task process policy"],
+      nextPrompt: taskProcessNextPrompt,
+      detail: report.status === "ready" ? "구현 경계 확인 완료" : "차단 조건 보완 필요"
+    });
     return report.status === "ready" ? 0 : 2;
   }
 
@@ -358,6 +511,12 @@ async function run(argv: string[]): Promise<number> {
       const taskSelection = applyTaskIdFromHcpState(input, "active", "#태스크정리", repoRoot);
       if (taskSelection.status === "blocked") {
         console.log(taskSelection.markdown);
+        printHarnessCompletionProtocol({
+          tag: "task_close",
+          outcome: "blocked",
+          missingItems: ["active task selection"],
+          nextPrompt: buildTaskClosePrompt(input.sessionId, input.taskId)
+        });
         return 2;
       }
       const selectedTask = readSessionById(repoRoot, input.sessionId!).tasks.find((task) => task.taskId === input.taskId);
@@ -365,12 +524,24 @@ async function run(argv: string[]): Promise<number> {
       const closeReadiness = evaluateHcpTaskCloseReadiness(selectedTask);
       if (!closeReadiness.ready) {
         console.log(`# Task close blocked by completion discovery\n\n${closeReadiness.reasons.map((reason) => `- ${reason}`).join("\n")}\n`);
+        printHarnessCompletionProtocol({
+          tag: "task_close",
+          outcome: "blocked",
+          missingItems: closeReadiness.reasons,
+          nextPrompt: buildTaskClosePrompt(input.sessionId, input.taskId)
+        });
         return 2;
       }
       const loopBlockers = listLoopRuns(repoRoot, input.taskId, true).filter((loop) => !["completed", "deleted"].includes(loop.status));
       const deletedRequired = listLoopRuns(repoRoot, input.taskId, true).filter((loop) => loop.status === "deleted" && loop.required && !loop.deletion?.replacementLoopId && !loop.deletion?.exclusionApproved);
       if (loopBlockers.length || deletedRequired.length) {
         console.log(`# Task close blocked by loops\n\n${[...loopBlockers, ...deletedRequired].map((loop) => `- ${loop.loopId}: ${loop.status}`).join("\n")}\n`);
+        printHarnessCompletionProtocol({
+          tag: "task_close",
+          outcome: "blocked",
+          missingItems: [...loopBlockers, ...deletedRequired].map((loop) => `${loop.loopId}:${loop.status}`),
+          nextPrompt: buildTaskClosePrompt(input.sessionId, input.taskId)
+        });
         return 2;
       }
     }
@@ -437,13 +608,40 @@ async function run(argv: string[]): Promise<number> {
           });
           const workChange = requireHcpWorkChangeSetAfter(repoRoot, input.sessionId!, "task_process", previousWorkChangeCount, task.taskId);
           console.log(buildHcpWorkChangeResponse(readSessionById(repoRoot, input.sessionId!), workChange));
+          printHarnessCompletionProtocol({
+            tag: "task_close",
+            outcome: "executed",
+            nextPrompt: buildTaskPromotePrompt(
+              input.sessionId,
+              task.taskId,
+              readRemoteBranchCommit(repoRoot, input.execution?.baseBranch ?? "dev"),
+              ["stg", "main"],
+              input.verificationResult
+            ),
+            detail: "태스크 PR 생성·dev 병합·HCP closed 전환 완료"
+          });
         } catch (error) {
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), error instanceof Error ? error.message : "HCP task close state update failed"));
           return 2;
         }
       }
+      if (execution.status !== "executed") {
+        printHarnessCompletionProtocol({
+          tag: "task_close",
+          outcome: "blocked",
+          missingItems: report.json.missing.length > 0 ? report.json.missing : ["task close execution"],
+          nextPrompt: buildTaskClosePrompt(input.sessionId, input.taskId, input),
+          detail: execution.recovery?.recovery ?? "태스크 정리 차단 조건을 보완한다."
+        });
+      }
       return execution.status === "executed" ? 0 : 2;
     }
+    printHarnessCompletionProtocol({
+      tag: "task_close",
+      outcome: report.status === "ready" ? "ready" : "blocked",
+      missingItems: report.json.missing,
+      nextPrompt: buildTaskClosePrompt(input.sessionId, input.taskId, input)
+    });
     return 0;
   }
 
@@ -454,6 +652,13 @@ async function run(argv: string[]): Promise<number> {
       const taskSelection = applyTaskIdFromHcpState(input, "closed", "#태스크승급", repoRoot);
       if (taskSelection.status === "blocked") {
         console.log(taskSelection.markdown);
+        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
+        printHarnessCompletionProtocol({
+          tag: "task_promote",
+          outcome: "blocked",
+          missingItems: ["closed task selection"],
+          nextPrompt: buildTaskPromotePrompt(input.sessionId, input.taskId, input.targetCommit, input.targetBranches, input.verificationResult)
+        });
         return 2;
       }
     }
@@ -487,11 +692,40 @@ async function run(argv: string[]): Promise<number> {
           console.log(result.review?.markdown ?? buildTaskPromoteSessionReviewFailureMarkdown(input.sessionId!, result.reviewFailure ?? "unknown review failure"));
         } catch (error) {
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), error instanceof Error ? error.message : "HCP task promote state update failed"));
+          printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
           return 2;
         }
       }
+      if (execution.status !== "executed") {
+        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
+        printHarnessCompletionProtocol({
+          tag: "task_promote",
+          outcome: "blocked",
+          missingItems: report.json.missing.length > 0 ? report.json.missing : ["task promotion execution"],
+          nextPrompt: buildTaskPromotePrompt(
+            input.sessionId,
+            input.taskId,
+            input.targetCommit,
+            input.targetBranches,
+            input.verificationResult
+          )
+        });
+      }
       return execution.status === "executed" ? 0 : 2;
     }
+    printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
+    printHarnessCompletionProtocol({
+      tag: "task_promote",
+      outcome: report.status === "ready" ? "ready" : "blocked",
+      missingItems: report.json.missing,
+      nextPrompt: buildTaskPromotePrompt(
+        input.sessionId,
+        input.taskId,
+        input.targetCommit,
+        input.targetBranches,
+        input.verificationResult
+      )
+    });
     return 0;
   }
 
@@ -791,6 +1025,148 @@ function buildSessionStartOrder(sessionNumber?: string, recommendedSessionName?:
     "}",
     "```"
   ].join("\n") + "\n";
+}
+
+function buildSessionStartTaskPrompt(session: HcpSessionState, report: SessionStartReport): string {
+  const plan = report.json.sessionPlan;
+  const relatedIssue = plan?.relatedIssue?.match(/^#(\d+)/)?.[1];
+  const nextWork = normalizePromptLine(plan?.recommendedNextWork ?? "추천 작업을 확인한다");
+  return [
+    "#태스크시작{",
+    `sessionId: ${session.sessionId}`,
+    relatedIssue ? `이슈: #${relatedIssue}` : `작업지시: SESSION-${session.sessionNumber}-TASK-001`,
+    `작업범위: ${nextWork}`,
+    "제외범위: 전역 Deferred Backlog와 현재 작업에 직접 관련 없는 범위는 제외한다.",
+    `완료조건: ${nextWork} 요구사항이 구현되고 검증된다.`,
+    "검증방법: npm test, npm run check, 관련 CLI 회귀 테스트",
+    "}"
+  ].join("\n");
+}
+
+function buildTaskStartPrompt(input: ReturnType<typeof parseTaskStartArgs>): string {
+  return [
+    "#태스크시작{",
+    ...(input.sessionId ? [`sessionId: ${input.sessionId}`] : []),
+    input.issueNumber ? `이슈: #${input.issueNumber}` : `작업지시: ${input.workOrderId ?? "확인필요"}`,
+    `작업범위: ${normalizePromptLine(input.scope ?? "확인필요")}`,
+    `제외범위: ${normalizePromptLine(input.outOfScope ?? "확인필요")}`,
+    `완료조건: ${normalizePromptLine(input.completionCriteria ?? "확인필요")}`,
+    `검증방법: ${normalizePromptLine(input.verificationMethod ?? "확인필요")}`,
+    "}"
+  ].join("\n");
+}
+
+function buildTaskProcessPrompt(sessionId: string, task: HcpTaskState): string {
+  return [
+    "#태스크처리{",
+    `sessionId: ${sessionId}`,
+    `taskId: ${task.taskId}`,
+    `작업내용: ${normalizePromptLine(task.taskName)} 구현과 검증을 진행한다.`,
+    "}"
+  ].join("\n");
+}
+
+function buildTaskClosePrompt(sessionId: string | undefined, taskId: string | undefined, input: {
+  completionSummary?: string; verificationResult?: string; outOfScope?: string; remainingWork?: string;
+  execution?: { paths?: string[]; commitMessage?: string; prTitle?: string; relatedIssueNumber?: number };
+} = {}): string {
+  return [
+    "#태스크정리{",
+    `sessionId: ${sessionId ?? "확인필요"}`,
+    `taskId: ${taskId ?? "확인필요"}`,
+    `완료내용: ${normalizePromptLine(input.completionSummary ?? "구현 완료 결과 확인필요")}`,
+    `검증결과: ${normalizePromptLine(input.verificationResult ?? "검증 결과 확인필요")}`,
+    `제외범위: ${normalizePromptLine(input.outOfScope ?? "태스크 범위 밖 작업")}`,
+    `남은작업: ${normalizePromptLine(input.remainingWork ?? "없음 또는 확인필요")}`,
+    `변경경로: ${input.execution?.paths?.join(",") || "확인필요"}`,
+    `커밋메시지: ${normalizePromptLine(input.execution?.commitMessage ?? "확인필요")}`,
+    `PR제목: ${normalizePromptLine(input.execution?.prTitle ?? "확인필요")}`,
+    `관련이슈: ${input.execution?.relatedIssueNumber ?? "확인필요"}`,
+    "}"
+  ].join("\n");
+}
+
+function buildTaskPromotePrompt(
+  sessionId: string | undefined,
+  taskId: string | undefined,
+  targetCommit: string | undefined,
+  targetBranches: string[],
+  verificationResult?: string
+): string {
+  return [
+    "#태스크승급{",
+    `sessionId: ${sessionId ?? "확인필요"}`,
+    `taskId: ${taskId ?? "확인필요"}`,
+    `대상커밋: ${targetCommit ?? "확인필요"}`,
+    `대상브랜치: ${targetBranches.join(",") || "stg,main"}`,
+    `검증결과: ${normalizePromptLine(verificationResult ?? "검증 결과 확인필요")}`,
+    "}"
+  ].join("\n");
+}
+
+function buildSessionClosePrompt(sessionId?: string): string {
+  return ["#세션정리{", `sessionId: ${sessionId ?? "확인필요"}`, "}"].join("\n");
+}
+
+function buildNextSessionStartPrompt(session: HcpSessionState, handoff?: string): string {
+  if (handoff?.includes("#세션시작{") && /세션번호\s*[:=]/.test(handoff)
+    && /세션명\s*[:=]/.test(handoff) && /에이전트\s*[:=]/.test(handoff)) {
+    return handoff;
+  }
+  const nextNumber = String(Number(session.sessionNumber) + 1).padStart(3, "0");
+  const completedTasks = session.tasks.filter((task) => task.status === "promoted").length;
+  const unfinishedTasks = session.tasks.filter((task) => task.status !== "promoted").length;
+  const openBacklogs = session.backlogItems.filter((item) => item.status === "open").length;
+  return [
+    "#세션시작{",
+    `세션번호: ${nextNumber}`,
+    `세션명: ${nextNumber}_HCP_후속작업_확인`,
+    `에이전트: ${session.agentId}`,
+    `이전 세션: ${session.sessionId} = ${session.status}`,
+    `이전 태스크: promoted ${completedTasks}, unfinished ${unfinishedTasks}`,
+    `HCP 세션 Backlog: open ${openBacklogs}`,
+    `다음 작업: ${normalizePromptLine(handoff ?? "이전 세션 최종 결과와 Deferred 재개 조건을 확인해 첫 태스크를 선정한다.")}`,
+    "}"
+  ].join("\n");
+}
+
+function printHarnessCompletionProtocol(input: {
+  tag: HarnessCompletionTag;
+  outcome: HarnessCompletionOutcome;
+  missingItems?: string[];
+  nextPrompt: string;
+  detail?: string;
+}): void {
+  console.log(buildHarnessCompletionProtocol(input).markdown);
+}
+
+function printHarnessScopeReviewSafely(repoRoot: string, sessionId: string | undefined, trigger: HarnessReviewTrigger): void {
+  if (!sessionId) {
+    console.log(`# Harness Scope Review\n\n- trigger: ${trigger}\n- status: unavailable\n- detail: sessionId missing\n`);
+    return;
+  }
+  try {
+    console.log(buildHarnessScopeReview(repoRoot, sessionId, trigger).markdown);
+  } catch (error) {
+    console.log(`# Harness Scope Review\n\n- trigger: ${trigger}\n- status: unavailable\n- detail: ${normalizePromptLine(error instanceof Error ? error.message : "scope review failed")}\n`);
+  }
+}
+
+function normalizePromptLine(value: string): string {
+  return value.replace(/```(?:text)?/gi, "").replace(/\s+/g, " ").trim();
+}
+
+function readRemoteBranchCommit(repoRoot: string, branch: string): string {
+  try {
+    const output = execFileSync("git", ["ls-remote", "origin", `refs/heads/${branch}`], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    }).trim();
+    return output.split(/\s+/, 1)[0] || "확인필요";
+  } catch {
+    return "확인필요";
+  }
 }
 
 function parseIssueNumberFromText(value: string): number | undefined {
@@ -1246,25 +1622,26 @@ function buildDbErrorMarkdown(title: string, error: unknown): string {
 }
 
 export function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report" | "merge", args: string[]): string[] {
+  const normalizedBlockArgs = expandHarnessTagBlockArgs(tag, args);
   if (tag === "session_start") {
-    const normalizedArgs = expandBlockOption(normalizeSessionNumberTagArgs(args), parseSessionStartBlockArgs);
+    const normalizedArgs = expandBlockOption(normalizeSessionNumberTagArgs(normalizedBlockArgs), parseSessionStartBlockArgs);
     return mode === "execute" ? ["session", "start", ...normalizedArgs] : ["session", "start", "--no-state", ...normalizedArgs];
   }
   if (tag === "task_start") {
-    return mode === "execute" ? ["task", "start", "--execute", ...args] : ["task", "start", ...args];
+    return mode === "execute" ? ["task", "start", "--execute", ...normalizedBlockArgs] : ["task", "start", ...normalizedBlockArgs];
   }
 
   if (tag === "task_process") {
-    return mode === "execute" ? ["task", "process", "--execute", ...args] : ["task", "process", ...args];
+    return mode === "execute" ? ["task", "process", "--execute", ...normalizedBlockArgs] : ["task", "process", ...normalizedBlockArgs];
   }
   if (tag === "task_close") {
-    return mode === "execute" || mode === "merge" ? ["task", "close", "--execute", ...args] : ["task", "close", ...args];
+    return mode === "execute" || mode === "merge" ? ["task", "close", "--execute", ...normalizedBlockArgs] : ["task", "close", ...normalizedBlockArgs];
   }
   if (tag === "task_promote") {
-    return mode === "execute" ? ["task", "promote", "--execute", ...args] : ["task", "promote", ...args];
+    return mode === "execute" ? ["task", "promote", "--execute", ...normalizedBlockArgs] : ["task", "promote", ...normalizedBlockArgs];
   }
   if (tag === "session_close") {
-    const normalizedArgs = normalizeSessionNumberTagArgs(args);
+    const normalizedArgs = normalizeSessionNumberTagArgs(normalizedBlockArgs);
     if (mode === "reuse") {
       return ["session", "close", "--execute", "--reuse-open-pr", ...normalizedArgs];
     }
@@ -1465,11 +1842,23 @@ function runLoopCommand(command: string, args: string[]): number {
     const errors = registryResult?.errors ?? [];
     if (missing.length || errors.length || reportOnly) {
       console.log(["# Loop analysis report", "", `- status: ${missing.length || errors.length ? "blocked" : "ready"}`, `- missing: ${missing.join(", ") || "none"}`, `- registry errors: ${errors.join("; ") || "none"}`, "- write actions: loop creation blocked in report mode"].join("\n"));
+      printHarnessCompletionProtocol({
+        tag: "loop_analyze",
+        outcome: missing.length || errors.length ? "blocked" : "ready",
+        missingItems: [...missing, ...errors],
+        nextPrompt: buildLoopCurrentPrompt("analyze", options)
+      });
       return missing.length || errors.length ? 2 : 0;
     }
     const targetErrors = validateLoopAnalysisTarget(repoRoot, options["session-id"], options["task-id"]);
     if (targetErrors.length) {
       console.log(["# Loop analysis report", "", "- status: blocked", "- missing: none", "- registry errors: none", `- target errors: ${targetErrors.join("; ")}`, "- write actions: loop creation blocked"].join("\n"));
+      printHarnessCompletionProtocol({
+        tag: "loop_analyze",
+        outcome: "blocked",
+        missingItems: targetErrors,
+        nextPrompt: buildLoopCurrentPrompt("analyze", options)
+      });
       return 2;
     }
     const workItems = registry?.workItems ?? [buildSingleLoopWorkItem(options)];
@@ -1479,6 +1868,11 @@ function runLoopCommand(command: string, args: string[]): number {
     });
     linkHcpTaskLoop(repoRoot, loop.sessionId, loop.taskId, loop.loopId);
     console.log(`# Loop analysis\n\n- loop id: ${loop.loopId}\n- status: ${loop.status}\n- analysis version: ${loop.analysisVersion}\n`);
+    printHarnessCompletionProtocol({
+      tag: "loop_analyze",
+      outcome: "executed",
+      nextPrompt: buildLoopExecutionPrompt(loop.loopId)
+    });
     return 0;
   }
   const candidates = selectLoopCandidates(repoRoot, command, options["task-id"]);
@@ -1490,12 +1884,29 @@ function runLoopCommand(command: string, args: string[]): number {
   if (!selected) {
     console.log(formatLoopList(candidates));
     console.log(`\n- selection required: specify loopId and selectionToken=${selectionToken}`);
+    const completionTag = loopCompletionTag(command);
+    const reviewTrigger = loopReviewTrigger(command);
+    if (reviewTrigger) printHarnessScopeReviewSafely(repoRoot, options["session-id"], reviewTrigger);
+    if (completionTag) printHarnessCompletionProtocol({
+      tag: completionTag,
+      outcome: "blocked",
+      missingItems: ["loop selection"],
+      nextPrompt: buildLoopCurrentPrompt(command, { ...options, "selection-token": selectionToken })
+    });
     return 2;
   }
   if (reportOnly) {
     const rollback = command === "rollback" ? buildRollbackReport(repoRoot, selected.loopId) : undefined;
     const detail = rollback?.detail ?? `${command} would target ${selected.loopId}`;
     console.log(`# Loop ${command} report\n\n- loop id: ${selected.loopId}\n- status: ${selected.status}\n- detail: ${detail}${rollback ? `\n- removable files: ${rollback.removableFiles.join(", ") || "none"}\n- blocked files: ${rollback.blockedFiles.join(", ") || "none"}` : ""}\n`);
+    const reviewTrigger = loopReviewTrigger(command);
+    if (reviewTrigger) printHarnessScopeReviewSafely(repoRoot, selected.sessionId, reviewTrigger);
+    const completionTag = loopCompletionTag(command);
+    if (completionTag) printHarnessCompletionProtocol({
+      tag: completionTag,
+      outcome: "ready",
+      nextPrompt: buildLoopCurrentPrompt(command, options, selected)
+    });
     return 0;
   }
   if (command === "execute") {
@@ -1517,7 +1928,17 @@ function runLoopCommand(command: string, args: string[]): number {
     }, new Date(), options["work-item-id"]);
   } else if (command === "stop") transitionLoop(repoRoot, selected.loopId, "paused");
   else if (command === "approve") {
-    if (!options["work-item-id"] || !options["condition-value"] || !options["approved-by"]) throw new Error("--work-item-id, --condition-value and --approved-by are required");
+    if (!options["work-item-id"] || !options["condition-value"] || !options["approved-by"]) {
+      console.log("# Loop approve blocked\n\n- missing: work-item-id, condition-value, or approved-by\n");
+      printHarnessScopeReviewSafely(repoRoot, selected.sessionId, "loop_approve");
+      printHarnessCompletionProtocol({
+        tag: "loop_approve",
+        outcome: "blocked",
+        missingItems: ["approval evidence"],
+        nextPrompt: buildLoopCurrentPrompt(command, options, selected)
+      });
+      return 2;
+    }
     approveLoopCondition(repoRoot, selected.loopId, options["work-item-id"], options["condition-value"], options["approved-by"]);
   }
   else if (command === "delete") softDeleteLoop(repoRoot, selected.loopId, options.reason ?? "deleted by loop command", new Date(), options["replacement-loop-id"], options["exclusion-approved"] === "true");
@@ -1526,13 +1947,146 @@ function runLoopCommand(command: string, args: string[]): number {
     const plan = buildRollbackReport(repoRoot, selected.loopId);
     if (!options["approved-paths"]) {
       console.log(`# Loop rollback\n\n- ${plan.detail}\n- removable files: ${plan.removableFiles.join(", ") || "none"}\n- blocked files: ${plan.blockedFiles.join(", ") || "none"}\n- file changes: not applied; --approved-paths is required\n`);
+      printHarnessScopeReviewSafely(repoRoot, selected.sessionId, "loop_rollback");
+      printHarnessCompletionProtocol({
+        tag: "loop_rollback",
+        outcome: "blocked",
+        missingItems: ["approved paths"],
+        nextPrompt: buildLoopCurrentPrompt(command, options, selected)
+      });
       return plan.ready ? 2 : 3;
     }
     executeApprovedRollback(repoRoot, selected.loopId, splitList(options["approved-paths"]));
   }
   const updated = listLoopRuns(repoRoot, undefined, true).find((loop) => loop.loopId === selected.loopId);
   console.log(`# Loop ${command}\n\n- loop id: ${selected.loopId}\n- status: ${updated?.status ?? "unknown"}\n`);
+  const reviewTrigger = loopReviewTrigger(command);
+  if (reviewTrigger) printHarnessScopeReviewSafely(repoRoot, updated?.sessionId ?? selected.sessionId, reviewTrigger);
+  const completionTag = loopCompletionTag(command);
+  if (completionTag && updated) printHarnessCompletionProtocol({
+    tag: completionTag,
+    outcome: "executed",
+    nextPrompt: buildLoopExecutedNextPrompt(command, updated)
+  });
   return 0;
+}
+
+function loopReviewTrigger(command: string): HarnessReviewTrigger | undefined {
+  const triggers: Record<string, HarnessReviewTrigger> = {
+    approve: "loop_approve",
+    delete: "loop_delete",
+    restore: "loop_restore",
+    rollback: "loop_rollback"
+  };
+  return triggers[command];
+}
+
+function loopCompletionTag(command: string): HarnessCompletionTag | undefined {
+  const tags: Record<string, HarnessCompletionTag> = {
+    analyze: "loop_analyze",
+    execute: "loop_execute",
+    remediate: "loop_remediate",
+    approve: "loop_approve",
+    delete: "loop_delete",
+    restore: "loop_restore",
+    rollback: "loop_rollback"
+  };
+  return tags[command];
+}
+
+function buildLoopCurrentPrompt(command: string, options: Record<string, string>, loop?: HcpLoopRun): string {
+  const loopId = loop?.loopId ?? options["loop-id"] ?? "선택필요";
+  const selectedWork = loop?.workItems.find((item) => item.id === options["work-item-id"]) ?? loop?.workItems[0];
+  const values = (items: unknown[] | undefined): string => items?.map((item) =>
+    typeof item === "string" ? item : JSON.stringify(item)).join(",") || "확인필요";
+  if (command === "analyze") return [
+    "#루프분석{",
+    `sessionId: ${loop?.sessionId ?? options["session-id"] ?? "확인필요"}`,
+    `taskId: ${loop?.taskId ?? options["task-id"] ?? "확인필요"}`,
+    `제목: ${loop?.title ?? options.title ?? "확인필요"}`,
+    `목표: ${loop?.objective ?? options.objective ?? "확인필요"}`,
+    `완료조건: ${options.completion ?? values(selectedWork?.completionConditions)}`,
+    `정상결과: ${options["expected-results"] ?? values(selectedWork?.expectedResults)}`,
+    `오류케이스: ${options["error-cases"] ?? values(selectedWork?.errorCases)}`,
+    `허용경로: ${options["allowed-paths"] ?? values(selectedWork?.allowedPaths)}`,
+    `검증방법: ${options.verification ?? values(selectedWork?.verificationCommands)}`,
+    "}"
+  ].join("\n");
+  if (command === "execute") return buildLoopExecutionPrompt(loopId);
+  if (command === "remediate") return [
+    "#루프보완{",
+    `loopId: ${loopId}`,
+    `작업항목: ${options["work-item-id"] ?? selectedWork?.id ?? "확인필요"}`,
+    `완료조건: ${options.completion ?? values(selectedWork?.completionConditions)}`,
+    "}"
+  ].join("\n");
+  if (command === "approve") return [
+    "#루프승인{",
+    `loopId: ${loopId}`,
+    `작업항목: ${options["work-item-id"] ?? selectedWork?.id ?? "확인필요"}`,
+    `승인조건: ${options["condition-value"] ?? findManualApprovalValue(loop) ?? "확인필요"}`,
+    `승인자: ${options["approved-by"] ?? "확인필요"}`,
+    "}"
+  ].join("\n");
+  if (command === "delete") return [
+    "#루프삭제{",
+    `loopId: ${loopId}`,
+    `사유: ${options.reason ?? "삭제 사유 확인필요"}`,
+    ...(options["replacement-loop-id"]
+      ? [`대체루프ID: ${options["replacement-loop-id"]}`]
+      : [`제외승인: ${options["exclusion-approved"] ?? "확인필요"}`]),
+    "}"
+  ].join("\n");
+  if (command === "restore") return ["#루프복원{", `loopId: ${loopId}`, "}"].join("\n");
+  return [
+    "#루프롤백{",
+    `loopId: ${loopId}`,
+    `롤백승인경로: ${options["approved-paths"] ?? "확인필요"}`,
+    "}"
+  ].join("\n");
+}
+
+function buildLoopExecutedNextPrompt(command: string, loop: HcpLoopRun): string {
+  if (command === "execute") {
+    if (loop.status === "completed") return buildLoopTaskProcessPrompt(loop, "완료 결과를 태스크에 반영한다");
+    const approvalValue = findManualApprovalValue(loop);
+    if (approvalValue) return buildLoopCurrentPrompt("approve", { "condition-value": approvalValue }, loop);
+    if (["blocked", "failed"].includes(loop.status)) return buildLoopCurrentPrompt("remediate", {}, loop);
+    return buildLoopExecutionPrompt(loop.loopId);
+  }
+  if (["analyze", "remediate", "approve"].includes(command)) return buildLoopExecutionPrompt(loop.loopId);
+  if (command === "delete") return buildLoopTaskProcessPrompt(loop, "삭제 및 대체·제외 처분 결과를 태스크에 반영한다");
+  if (command === "restore") {
+    return ["blocked", "failed"].includes(loop.status)
+      ? buildLoopCurrentPrompt("remediate", {}, loop)
+      : buildLoopExecutionPrompt(loop.loopId);
+  }
+  if (command === "rollback") return buildLoopCurrentPrompt("remediate", {}, loop);
+  return buildLoopTaskProcessPrompt(loop, `${command} 결과를 태스크에 반영한다`);
+}
+
+function buildLoopExecutionPrompt(loopId: string): string {
+  return ["#루프실행{", `loopId: ${loopId}`, "}"].join("\n");
+}
+
+function buildLoopTaskProcessPrompt(loop: HcpLoopRun, detail: string): string {
+  return [
+    "#태스크처리{",
+    `sessionId: ${loop.sessionId}`,
+    `taskId: ${loop.taskId}`,
+    `작업내용: Loop ${loop.loopId} ${detail}`,
+    "}"
+  ].join("\n");
+}
+
+function findManualApprovalValue(loop?: HcpLoopRun): string | undefined {
+  for (const item of loop?.workItems ?? []) {
+    if (item.lastError !== "completion_condition_failed:manual_approval") continue;
+    const condition = item.completionConditions.find((candidate) =>
+      typeof candidate !== "string" && candidate.type === "manual_approval" && candidate.value);
+    if (typeof condition !== "string") return condition?.value;
+  }
+  return undefined;
 }
 
 function buildSingleLoopWorkItem(options: Record<string, string>): LoopWorkItemDefinition {
