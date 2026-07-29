@@ -26,9 +26,11 @@ import { readProjectPreflight } from "./flows/project-preflight.ts";
 import { buildTaskCloseReport, executeTaskClose, parseTaskCloseArgs, parseTaskCloseBlock, readTaskCloseGitSummary } from "./flows/task-close.ts";
 import { buildTaskProcessReport, parseTaskProcessArgs, type TaskProcessInput } from "./flows/task-process.ts";
 import { buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs, readTaskPromoteBranchStatus } from "./flows/task-promote.ts";
+import { buildTaskPromoteSessionReviewFailureMarkdown, promoteHcpTaskWithSessionReview } from "./flows/task-promote-review.ts";
 import { buildTaskStartReport, buildTaskStartStateRegistrationRecovery, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
 import { checkProjectAccess, loadProjectProfile, resolveProjectLocalPath } from "./projects/project-profile.ts";
 import { createReportDocument } from "./reports/create-report.ts";
+import { runBoundedGitHubCommand } from "./process/bounded-command.ts";
 import { checkRequiredEnv } from "./security/env-check.ts";
 import { buildSessionPlan } from "./session/session-plan.ts";
 import { approveLoopCondition, beginLoopWorkItemImplementation, buildRollbackReport, completeLoopWorkItemImplementation, createLoopCheckpoint, createLoopRun, executeApprovedRollback, listLoopRuns, recoverStaleLoopLeases, restoreLoop, reviseLoopAnalysis, runNextLoopWorkItem, selectLoopCandidates, softDeleteLoop, transitionLoop, validateWorkItems, type LoopWorkItemDefinition } from "./state/loop-state.ts";
@@ -476,14 +478,13 @@ async function run(argv: string[]): Promise<number> {
       console.log(execution.markdown);
       if (execution.status === "executed") {
         try {
-          const task = updateHcpTask(repoRoot, {
+          const result = promoteHcpTaskWithSessionReview(repoRoot, {
             agentId: input.agentId,
-            sessionId: input.sessionId,
-            taskId: input.taskId,
-            expectedStatus: "closed",
-            status: "promoted"
+            sessionId: input.sessionId!,
+            taskId: input.taskId
           });
-          console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), `promoted task: ${task.taskId}`));
+          console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), `promoted task: ${result.task.taskId}`));
+          console.log(result.review?.markdown ?? buildTaskPromoteSessionReviewFailureMarkdown(input.sessionId!, result.reviewFailure ?? "unknown review failure"));
         } catch (error) {
           console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), error instanceof Error ? error.message : "HCP task promote state update failed"));
           return 2;
@@ -1706,11 +1707,9 @@ function readTaskPromoteHcpPolicyInput(
     }
     if (targetCommit && task?.pullRequest?.number) {
       try {
-        const metadata = JSON.parse(execFileSync("gh", ["pr", "view", String(task.pullRequest.number), "--json", "state,baseRefName,mergeCommit"], {
-          cwd: repoRoot,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "pipe"]
-        })) as { state?: string; baseRefName?: string; mergeCommit?: { oid?: string } };
+        const metadata = JSON.parse(runBoundedGitHubCommand(repoRoot, [
+          "pr", "view", String(task.pullRequest.number), "--json", "state,baseRefName,mergeCommit"
+        ])) as { state?: string; baseRefName?: string; mergeCommit?: { oid?: string } };
         pullRequestMergedToDev = pullRequestMergeMatchesDevTarget(metadata, targetCommit, devContainsTarget);
       } catch {
         pullRequestMergedToDev = false;
