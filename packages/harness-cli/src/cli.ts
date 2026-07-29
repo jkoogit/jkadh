@@ -19,6 +19,7 @@ import { runDbBaseline } from "./db/db-baseline.ts";
 import { runDbValidate } from "./db/db-validate.ts";
 import { runDictionaryList } from "./db/dictionary.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
+import { buildConversationRequestGate, type ConversationRequestKind, type ConversationScopeDecision } from "./flows/conversation-request.ts";
 import { buildSessionCloseReport, enrichSessionCloseInputWithAutoStatus, enrichSessionCloseInputWithHcpState, enrichSessionCloseInputWithIssueSettlement, parseSessionCloseArgs, runSessionCloseExecution } from "./flows/session-close.ts";
 import { buildSessionStartReport } from "./flows/session-start.ts";
 import { readProjectPreflight } from "./flows/project-preflight.ts";
@@ -93,6 +94,7 @@ function printUsage(): void {
   jkadh hcp issue update --session-id <id> --issue <number> --title <title>
   jkadh hcp pr update --session-id <id> --task-id <id> --pr <number> --title <title>
   jkadh hcp branch update --session-id <id> --task-id <id> --branch-name <name>
+  jkadh hcp request check --session-id <id> --task-id <id> --request <text> [--request-kind natural|tagged --scope-decision in_scope|out_of_scope|unknown]
   jkadh hcp backlog add|update|delete
   jkadh hcp work add|update|graph
   jkadh hcp archived cleanup [--older-than-days 90 --keep 20 --dry-run]
@@ -817,6 +819,27 @@ function runHcpCommand(command: string | undefined, args: string[]): number {
   const options = parseKeyValueArgs(args.slice(1));
   const repoRoot = resolveGitRoot(process.cwd());
   try {
+    if (target === "request" && action === "check") {
+      const sessionId = requiredOption(options, "session-id");
+      const taskId = requiredOption(options, "task-id");
+      const session = readSessionById(repoRoot, sessionId);
+      const task = session.tasks.find((candidate) => candidate.taskId === taskId);
+      if (!task) throw new Error(`HCP task not found: ${taskId}`);
+      const requestKind = parseConversationRequestKind(options["request-kind"]);
+      const scopeDecision = parseConversationScopeDecision(options["scope-decision"]);
+      const result = buildConversationRequestGate({
+        sessionId,
+        taskId,
+        request: requiredOption(options, "request"),
+        taskScope: task.scope ?? "",
+        taskOutOfScope: task.outOfScope ?? "",
+        requestKind,
+        scopeDecision,
+        backlogTitle: options.title
+      });
+      console.log(result.markdown);
+      return 0;
+    }
     if (target === "session" && action === "update") {
       const session = updateHcpSession(repoRoot, {
         sessionId: requiredOption(options, "session-id"),
@@ -1172,6 +1195,19 @@ function parseWorkItemStatus(value?: string): HcpWorkItemStatus | undefined {
   const statuses: HcpWorkItemStatus[] = ["candidate", "ready", "active", "done", "blocked", "deferred", "cancelled", "backlogged"];
   if (!statuses.includes(value as HcpWorkItemStatus)) throw new Error(`invalid work item status: ${value}`);
   return value as HcpWorkItemStatus;
+}
+
+function parseConversationRequestKind(value?: string): ConversationRequestKind {
+  if (!value || value === "natural") return "natural";
+  if (value === "tagged") return "tagged";
+  throw new Error(`invalid request kind: ${value}`);
+}
+
+function parseConversationScopeDecision(value?: string): ConversationScopeDecision {
+  if (!value || value === "unknown") return "unknown";
+  if (value === "in_scope" || value === "in") return "in_scope";
+  if (value === "out_of_scope" || value === "out") return "out_of_scope";
+  throw new Error(`invalid scope decision: ${value}`);
 }
 
 function parseResponseWorkItems(value: string): Array<{ title: string; status: HcpWorkItemStatus; reason: string }> {
