@@ -339,6 +339,22 @@ checkpoint 검증 중 GitHub 또는 Git 명령이 실패하면 예외를 CLI 밖
 
 marker 조회는 GitHub Issue comment API를 `per_page=100`, `--paginate`, `--slurp`로 끝까지 조회하여 오래된 marker도 재사용할 수 있게 한다.
 
+## 10. 대화 요청 범위와 Backlog 확인
+
+자연어 요청은 실행 승인이 아니므로 코드나 HCP 상태를 변경하지 않는다. `jkadh hcp request check`는 활성 태스크의 범위와 제외범위를 읽어 요청을 `in_scope`, `out_of_scope`, `unknown`으로 점검한다. 실행은 `#태스크처리`, `#백로그추가`와 같은 HCP 태그 또는 alias가 입력된 뒤 해당 실행 게이트에서만 시작한다.
+
+```powershell
+jkadh hcp request check `
+  --session-id codex_ses_024_20260728_001 `
+  --task-id codex_task_024_002 `
+  --request "배포 작업도 진행해줘" `
+  --scope-decision out_of_scope
+```
+
+범위 밖 자연어 요청은 `backlog_confirmation_required`로 차단하고, 사용자에게 등록 여부를 확인할 `#백로그추가` 프롬프트를 별도의 `text` 코드 블록으로 출력한다. 이 점검만으로는 Backlog를 등록하지 않으며 사용자가 alias를 승인한 뒤에만 세션 Backlog를 생성한다. 범위 안 자연어 요청도 바로 실행하지 않고 복사용 `#태스크처리` 블록을 반환한다.
+
+추천 다음 작업 프롬프트는 `formatCopyablePrompt`를 사용해 항상 별도의 `text` 코드 블록으로 표시한다. 요청에서 생성하는 필드 값은 줄바꿈·중괄호·중첩 코드 fence를 제거해 복사 블록 구조가 깨지지 않게 한다.
+
 ## 작업 이력
 
 | 작업일시 | 관련 Issue | 작업 도구 | AI 모델 | 에이전트 역할 | 작성자 | 변경 유형 | 내용 |

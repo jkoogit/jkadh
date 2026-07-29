@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 
 import { checkGate, type HarnessAction } from "../gates/check-gate.ts";
 import { evaluateStagePolicies, policiesPassed, type PolicyResult } from "../gates/stage-policy.ts";
+import { formatCopyablePrompt } from "../reports/copyable-prompt.ts";
 import { createReportDocument } from "../reports/create-report.ts";
 import type { HcpTaskCloseEvidence } from "../state/session-state.ts";
 
@@ -325,9 +326,7 @@ export function buildTaskPromoteNextWorkReview(input: NextWorkReviewInput = {}):
     "- issue close: defer to #세션정리",
     "- recommended next prompt:",
     "",
-    "```text",
-    nextPrompt,
-    "```"
+    formatCopyablePrompt(nextPrompt)
   ].join("\n");
 }
 
