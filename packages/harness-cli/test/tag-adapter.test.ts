@@ -8,6 +8,7 @@ import {
   parseHarnessTag,
   parseHarnessTagCommand
 } from "../src/tags/tag-adapter.ts";
+import { parseSessionCloseArgs } from "../src/flows/session-close.ts";
 
 test("tag adapter maps Korean session and task tags to flow ids", () => {
   assert.equal(parseHarnessTag("#세션시작"), "session_start");
@@ -187,12 +188,29 @@ sessionId: codex_ses_025_001
 커밋메시지: docs: close session 025
 PR제목: [025]_(001)_session_close
 관련이슈: 172
+종료이슈: 172
 이슈제목: [172]_[HCP]_completion_protocol
 }`]), [
     "--session-id", "codex_ses_025_001", "--completed-tasks", "codex_task_025_001",
     "--session-name", "025_HCP_completion_protocol", "--issue-update", "최종 결과 반영", "--remaining", "없음",
     "--retrospective", "회고 생성", "--handoff", "다음 작업 확인", "--message", "docs: close session 025",
-    "--pr-title", "[025]_(001)_session_close", "--related-issue", "172", "--issue-title", "[172]_[HCP]_completion_protocol"
+    "--pr-title", "[025]_(001)_session_close", "--related-issue", "172", "--verified-issue", "172",
+    "--issue-title", "[172]_[HCP]_completion_protocol"
+  ]);
+});
+
+test("session close Issue settlement fields round-trip into CLI decisions", () => {
+  const args = expandHarnessTagBlockArgs("session_close", [`#세션정리{
+종료이슈: 172
+유지이슈: 175|외부 승인 대기|BLG-031
+인계이슈: 176|다음 세션 처리|SESSION-026
+}`]);
+  const parsed = parseSessionCloseArgs(args);
+
+  assert.deepEqual(parsed.verifiedIssueNumbers, [172]);
+  assert.deepEqual(parsed.relatedIssues, [
+    { number: 175, sources: ["command"], decision: "keep", reason: "외부 승인 대기", followUp: "BLG-031" },
+    { number: 176, sources: ["command"], decision: "handoff", reason: "다음 세션 처리", followUp: "SESSION-026" }
   ]);
 });
 

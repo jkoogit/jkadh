@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { promoteHcpTaskWithSessionReview, readTaskPromoteSessionReview, type TaskPromoteReviewRunner } from "../src/flows/task-promote-review.ts";
+import { parseSessionCloseArgs } from "../src/flows/session-close.ts";
+import { expandHarnessTagBlockArgs } from "../src/tags/tag-adapter.ts";
 import {
   addHcpBacklog,
   addHcpTask,
@@ -44,7 +46,11 @@ test("task promote review reports multiple promoted tasks and recommends session
   assert.match(review.markdown, /branch alignment: aligned/);
   assert.match(review.markdown, new RegExp(`\`\`\`text\\n#세션정리\\{\\nsessionId: ${session.sessionId}`));
   assert.match(review.markdown, /완료태스크: .*first task/);
+  assert.match(review.markdown, /종료이슈: 169/);
+  assert.match(review.markdown, /종료이슈: 170/);
   assert.match(review.markdown, /PR제목: \[024\]_\(001\)_promotion_complete_세션정리/);
+  const closeInput = parseSessionCloseArgs(expandHarnessTagBlockArgs("session_close", [review.nextPrompt]));
+  assert.deepEqual(closeInput.verifiedIssueNumbers, [169, 170]);
 });
 
 test("task promote review builds a copyable task-start prompt from the actual open session backlog", () => {

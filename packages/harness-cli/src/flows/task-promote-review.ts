@@ -155,7 +155,11 @@ function selectNextPrompt(session: HcpSessionState, devCommit?: string): { decis
 }
 
 function buildSessionCloseContinuationPrompt(session: HcpSessionState): string {
-  const relatedIssue = session.linkedIssue?.number ?? session.tasks.find((task) => task.issueNumber)?.issueNumber;
+  const relatedIssues = [...new Set([
+    session.linkedIssue?.number,
+    ...session.tasks.map((task) => task.issueNumber)
+  ].filter((number): number is number => Boolean(number)))];
+  const relatedIssue = relatedIssues[0];
   const completedTasks = session.tasks.filter((task) => task.status === "promoted")
     .map((task) => `${task.taskId} ${normalizePromptValue(task.taskName)}`);
   const remaining = [
@@ -176,6 +180,7 @@ function buildSessionCloseContinuationPrompt(session: HcpSessionState): string {
     `커밋메시지: docs: close session ${session.sessionNumber}`,
     `PR제목: [${session.sessionNumber}]_(001)_${normalizeTitleValue(session.sessionName)}_세션정리`,
     `관련이슈: ${relatedIssue ?? "확인필요"}`,
+    ...relatedIssues.map((issue) => `종료이슈: ${issue}`),
     `이슈제목: [${relatedIssue ?? session.sessionNumber}]_[HCP]_${normalizeTitleValue(session.sessionName)}`,
     "}"
   ].join("\n");

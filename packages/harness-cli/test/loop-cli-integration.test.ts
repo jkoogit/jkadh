@@ -127,6 +127,16 @@ test("Loop approval, deletion, restoration, and rollback reports include the com
   const managedLoop = createLoopRun(repo, {
     sessionId: session.sessionId, taskId: task.taskId, title: "managed", objective: "review lifecycle", workItems: [{ ...definition, id: "work_002" }]
   });
+  const rejectedDelete = spawnSync(process.execPath, [
+    "--experimental-strip-types", cliPath, "loop", "delete", "--loop-id", managedLoop.loopId,
+    "--task-id", task.taskId, "--reason", "invalid exclusion", "--exclusion-approved", "false"
+  ], { cwd: repo, encoding: "utf8" });
+  assert.equal(rejectedDelete.status, 2);
+  assert.match(rejectedDelete.stdout, /required disposition missing: yes/);
+  assert.match(rejectedDelete.stdout, /state change: not applied/);
+  assert.match(rejectedDelete.stdout, /Next prompt suppressed/);
+  assert.equal(listLoopRuns(repo, task.taskId, true).find((loop) => loop.loopId === managedLoop.loopId)?.status, "analysis_ready");
+
   const deleteOutput = execFileSync(process.execPath, [
     "--experimental-strip-types", cliPath, "loop", "delete", "--loop-id", managedLoop.loopId,
     "--task-id", task.taskId, "--reason", "superseded", "--exclusion-approved", "true"
@@ -153,5 +163,6 @@ test("Loop approval, deletion, restoration, and rollback reports include the com
   assert.match(rollbackOutput, /trigger: loop_rollback/);
   assert.match(rollbackOutput, /Missing Work Check/);
   assert.match(rollbackOutput, /harness: loop_rollback/);
-  assert.match(rollbackOutput, /#루프롤백\{/);
+  assert.match(rollbackOutput, /required prompt field invalid: 롤백승인경로/);
+  assert.match(rollbackOutput, /Next prompt suppressed/);
 });

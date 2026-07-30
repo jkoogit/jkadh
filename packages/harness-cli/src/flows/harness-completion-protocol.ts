@@ -15,6 +15,7 @@ export interface HarnessCompletionProtocolInput {
   tag: HarnessCompletionTag;
   outcome: HarnessCompletionOutcome;
   missingItems?: string[];
+  requiredReviewAvailable?: boolean;
   nextPrompt: string;
   detail?: string;
 }
@@ -47,7 +48,7 @@ const promptFields: Record<string, string[]> = {
   "#태스크승급": ["sessionId", "taskId", "대상커밋", "대상브랜치", "검증결과"],
   "#세션정리": [
     "sessionId", "완료태스크", "세션명", "이슈현행화", "남은작업", "회고", "다음세션인계",
-    "커밋메시지", "PR제목", "관련이슈", "이슈제목"
+    "커밋메시지", "PR제목", "관련이슈", "이슈제목", "종료이슈|검증종료이슈|유지이슈|인계이슈"
   ],
   "#루프분석": [
     "sessionId", "taskId", "제목", "목표", "완료조건", "정상결과", "오류케이스", "허용경로", "검증방법"
@@ -87,7 +88,7 @@ export function getHarnessNextPromptConstraint(
     const allowedTags: Record<HarnessCompletionTag, string[]> = {
       session_start: ["#세션시작"],
       task_start: ["#태스크시작"],
-      task_process: ["#태스크정리"],
+      task_process: ["#태스크처리"],
       task_close: ["#태스크정리"],
       task_promote: ["#태스크승급"],
       session_close: ["#세션정리"],
@@ -134,6 +135,9 @@ export function buildHarnessCompletionProtocol(
   };
   const violations: string[] = [];
 
+  if (input.requiredReviewAvailable === false) {
+    violations.push("required Harness scope review unavailable");
+  }
   if (input.outcome === "executed" && missingItems.length > 0) {
     violations.push(`executed outcome retains missing items: ${missingItems.join(", ")}`);
   }
@@ -143,8 +147,11 @@ export function buildHarnessCompletionProtocol(
     violations.push(`next tag ${nextTag} is not allowed; expected ${constraint.allowedTags.join(" or ")}`);
   }
   for (const field of constraint.requiredFields) {
-    if (!field.split("|").some((candidate) => hasPromptField(nextPrompt, candidate))) {
-      violations.push(`required prompt field missing: ${field}`);
+    const states = field.split("|").map((candidate) => promptFieldState(nextPrompt, candidate));
+    if (!states.includes("valid")) {
+      violations.push(states.includes("invalid")
+        ? `required prompt field invalid: ${field}`
+        : `required prompt field missing: ${field}`);
     }
   }
 
@@ -193,9 +200,31 @@ function extractNextTag(prompt: string): string | undefined {
   return prompt.match(/^\s*(#(?:세션시작|태스크시작|태스크처리|태스크정리|태스크승급|세션정리|루프분석|루프실행|루프보완|루프승인|루프삭제|루프복원|루프롤백))(?=\s|\{|$)/m)?.[1];
 }
 
-function hasPromptField(prompt: string, field: string): boolean {
+function promptFieldState(prompt: string, field: string): "missing" | "invalid" | "valid" {
   const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`^\\s*${escaped}\\s*[:=]\\s*\\S`, "m").test(prompt);
+  const values = [...prompt.matchAll(new RegExp(`^\\s*${escaped}\\s*[:=]\\s*(.*)$`, "gim"))]
+    .map((match) => match[1]?.trim() ?? "");
+  if (values.length === 0) return "missing";
+  return values.some((value) => isValidPromptFieldValue(field, value)) ? "valid" : "invalid";
+}
+
+function isValidPromptFieldValue(field: string, value: string): boolean {
+  if (!value || /확인\s*필요|선택\s*필요|미정|\b(?:todo|tbd)\b/i.test(value)) return false;
+  const normalizedField = field.replace(/\s+/g, "").toLowerCase();
+  if (normalizedField === "제외승인") return value.toLowerCase() === "true";
+  if (["관련이슈", "종료이슈", "검증종료이슈", "이슈"].includes(normalizedField)) {
+    return /^#?\d+$/.test(value);
+  }
+  if (["유지이슈", "인계이슈"].includes(normalizedField)) {
+    const [issue, reason, followUp] = value.split("|").map((item) => item.trim());
+    return /^#?\d+$/.test(issue ?? "")
+      && Boolean(reason && followUp)
+      && !/확인\s*필요|선택\s*필요|미정|\b(?:todo|tbd)\b/i.test(`${reason} ${followUp}`);
+  }
+  if (normalizedField === "대상커밋") return /^[0-9a-f]{7,40}$/i.test(value);
+  if (normalizedField === "세션번호") return /^\d{1,3}$/.test(value);
+  if (["변경경로", "롤백승인경로"].includes(normalizedField)) return value !== "없음";
+  return true;
 }
 
 function sanitizePrompt(prompt: string): string {

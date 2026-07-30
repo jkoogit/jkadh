@@ -11,14 +11,26 @@ import { addHcpBacklog, addHcpTask, addHcpWorkItem, createHcpSession } from "../
 
 test("Harness scope graph represents session, task, process, and Loop containment", () => {
   const nodes = listHarnessScopeNodes();
+  const markdown = buildHarnessScopeGraphMarkdown();
 
   assert.equal(nodes.length, 13);
   assert.deepEqual(getHarnessScopeNode("task_start").parentIds, ["session_start"]);
   assert.deepEqual(getHarnessScopeNode("task_process").parentIds, ["task_start"]);
   assert.deepEqual(getHarnessScopeNode("loop_execute").parentIds, ["task_process"]);
   assert.deepEqual(getHarnessScopeNode("loop_rollback").parentIds, ["loop_analyze", "loop_execute", "loop_remediate"]);
-  assert.match(buildHarnessScopeGraphMarkdown(), /1\.1 세션시작/);
-  assert.match(buildHarnessScopeGraphMarkdown(), /5\.4 루프롤백/);
+  assert.match(markdown, /```mermaid\nflowchart TD/);
+  assert.match(markdown, /session_start --> task_start/);
+  assert.match(markdown, /task_start --> task_process/);
+  assert.match(markdown, /task_process --> loop_execute/);
+  assert.match(markdown, /loop_analyze --> loop_rollback/);
+  assert.match(markdown, /loop_execute --> loop_rollback/);
+  assert.match(markdown, /loop_remediate --> loop_rollback/);
+  assert.ok(markdown.indexOf('task_process["3 태스크처리"]') < markdown.indexOf('task_close["2.2 태스크정리"]'));
+  assert.ok(markdown.indexOf('task_promote["2.3 태스크승급"]') < markdown.indexOf('session_close["1.2 세션정리"]'));
+
+  const cloned = getHarnessScopeNode("task_process");
+  cloned.parentIds.push("session_close");
+  assert.deepEqual(getHarnessScopeNode("task_process").parentIds, ["task_start"]);
 });
 
 test("review and missing-work requirements match the requested Harness commands", () => {

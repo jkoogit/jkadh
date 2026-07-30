@@ -74,6 +74,12 @@ test("task promote execution allows only state-derived continuation tags", () =>
   assert.doesNotMatch(constraint.allowedTags.join(" "), /#태스크승급/);
 });
 
+test("task process report-ready state requires task process execution before task close", () => {
+  const constraint = getHarnessNextPromptConstraint("task_process", "ready");
+
+  assert.deepEqual(constraint.allowedTags, ["#태스크처리"]);
+});
+
 test("all Harness scope graph nodes define an explicit executed-state continuation constraint", () => {
   const matrix = {
     session_start: ["#태스크시작"],
@@ -112,6 +118,88 @@ test("Loop completion protocol validates command-specific prompt fields", () => 
   assert.equal(result.nextTag, "#루프실행");
   assert.equal(invalid.status, "blocked");
   assert.match(invalid.violations.join("; "), /롤백승인경로/);
+});
+
+test("copy-ready prompt rejects placeholders and false deletion disposition", () => {
+  const placeholder = buildHarnessCompletionProtocol({
+    tag: "loop_delete",
+    outcome: "ready",
+    nextPrompt: [
+      "#루프삭제{",
+      "loopId: 선택필요",
+      "사유: 삭제 사유 확인필요",
+      "제외승인: 확인필요",
+      "}"
+    ].join("\n")
+  });
+  const falseDisposition = buildHarnessCompletionProtocol({
+    tag: "loop_delete",
+    outcome: "ready",
+    nextPrompt: [
+      "#루프삭제{",
+      "loopId: codex_loop_025_001",
+      "사유: 사용자 승인에 따른 제외",
+      "제외승인: false",
+      "}"
+    ].join("\n")
+  });
+
+  assert.equal(placeholder.status, "blocked");
+  assert.match(placeholder.violations.join("; "), /required prompt field invalid/);
+  assert.equal(falseDisposition.status, "blocked");
+  assert.match(falseDisposition.violations.join("; "), /대체루프ID\|제외승인/);
+});
+
+test("required review unavailability suppresses the next prompt", () => {
+  const result = buildHarnessCompletionProtocol({
+    tag: "task_promote",
+    outcome: "ready",
+    requiredReviewAvailable: false,
+    nextPrompt: [
+      "#태스크승급{",
+      "sessionId: codex_ses_025_001",
+      "taskId: codex_task_025_001",
+      "대상커밋: ab543127b6e16e8c6437c6060d2f62a55dcd7d3c",
+      "대상브랜치: stg,main",
+      "검증결과: npm test 통과",
+      "}"
+    ].join("\n")
+  });
+
+  assert.equal(result.status, "blocked");
+  assert.match(result.violations.join("; "), /required Harness scope review unavailable/);
+  assert.doesNotMatch(result.markdown, /```text\n#태스크승급/);
+});
+
+test("session close continuation requires an explicit Issue settlement decision", () => {
+  const base = [
+    "#세션정리{",
+    "sessionId: codex_ses_025_001",
+    "완료태스크: codex_task_025_001",
+    "세션명: 025_HCP",
+    "이슈현행화: 최종 상태 반영",
+    "남은작업: 없음",
+    "회고: 회고 생성",
+    "다음세션인계: 후속 작업 없음",
+    "커밋메시지: docs: close session 025",
+    "PR제목: [025]_(001)_session_close",
+    "관련이슈: 172",
+    "이슈제목: [172]_[HCP]_session_close"
+  ];
+  const missingDecision = buildHarnessCompletionProtocol({
+    tag: "task_promote",
+    outcome: "executed",
+    nextPrompt: [...base, "}"].join("\n")
+  });
+  const closing = buildHarnessCompletionProtocol({
+    tag: "task_promote",
+    outcome: "executed",
+    nextPrompt: [...base, "종료이슈: 172", "}"].join("\n")
+  });
+
+  assert.equal(missingDecision.status, "blocked");
+  assert.match(missingDecision.violations.join("; "), /종료이슈\|검증종료이슈\|유지이슈\|인계이슈/);
+  assert.equal(closing.status, "pass");
 });
 
 test("session close execution requires a dynamic structured session-start prompt", () => {
