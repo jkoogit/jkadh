@@ -277,22 +277,24 @@ async function run(argv: string[]): Promise<number> {
       const { sessionState, execution } = runSessionCloseExecution(input, repoRoot);
       if (sessionState.status === "blocked") {
         console.log(buildHcpStateMarkdown(buildHcpStateSummary(repoRoot, input.sessionId), sessionState.detail));
-        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
+        const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
         printHarnessCompletionProtocol({
           tag: "session_close",
           outcome: "blocked",
           missingItems: report.json.missing.length > 0 ? report.json.missing : [sessionState.detail],
+          requiredReviewAvailable: reviewAvailable,
           nextPrompt: buildSessionClosePrompt(input.sessionId),
           detail: sessionState.detail
         });
         return 2;
       }
       if (!execution) {
-        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
+        const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
         printHarnessCompletionProtocol({
           tag: "session_close",
           outcome: "blocked",
           missingItems: ["session close execution result"],
+          requiredReviewAvailable: reviewAvailable,
           nextPrompt: buildSessionClosePrompt(input.sessionId)
         });
         return 2;
@@ -303,29 +305,32 @@ async function run(argv: string[]): Promise<number> {
       }
       if (execution.status === "executed" && sessionState.sessionId) {
         const completedSession = readSessionById(repoRoot, sessionState.sessionId);
-        printHarnessScopeReviewSafely(repoRoot, sessionState.sessionId, "session_close");
+        const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, sessionState.sessionId, "session_close");
         printHarnessCompletionProtocol({
           tag: "session_close",
           outcome: "executed",
+          requiredReviewAvailable: reviewAvailable,
           nextPrompt: buildNextSessionStartPrompt(completedSession, input.handoff),
           detail: "회고·Issue 결산·세션정리 PR·브랜치 승급·최종 complete 반영 후 생성"
         });
       } else {
-        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
+        const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
         printHarnessCompletionProtocol({
           tag: "session_close",
           outcome: "blocked",
           missingItems: report.json.missing.length > 0 ? report.json.missing : ["session close execution"],
+          requiredReviewAvailable: reviewAvailable,
           nextPrompt: buildSessionClosePrompt(input.sessionId)
         });
       }
       return execution.status === "executed" ? 0 : 2;
     }
-    printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
+    const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, input.sessionId, "session_close");
     printHarnessCompletionProtocol({
       tag: "session_close",
       outcome: report.status === "ready" ? "ready" : "blocked",
       missingItems: report.json.missing,
+      requiredReviewAvailable: reviewAvailable,
       nextPrompt: buildSessionClosePrompt(input.sessionId)
     });
     return 0;
@@ -652,11 +657,12 @@ async function run(argv: string[]): Promise<number> {
       const taskSelection = applyTaskIdFromHcpState(input, "closed", "#태스크승급", repoRoot);
       if (taskSelection.status === "blocked") {
         console.log(taskSelection.markdown);
-        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
+        const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
         printHarnessCompletionProtocol({
           tag: "task_promote",
           outcome: "blocked",
           missingItems: ["closed task selection"],
+          requiredReviewAvailable: reviewAvailable,
           nextPrompt: buildTaskPromotePrompt(input.sessionId, input.taskId, input.targetCommit, input.targetBranches, input.verificationResult)
         });
         return 2;
@@ -697,11 +703,12 @@ async function run(argv: string[]): Promise<number> {
         }
       }
       if (execution.status !== "executed") {
-        printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
+        const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
         printHarnessCompletionProtocol({
           tag: "task_promote",
           outcome: "blocked",
           missingItems: report.json.missing.length > 0 ? report.json.missing : ["task promotion execution"],
+          requiredReviewAvailable: reviewAvailable,
           nextPrompt: buildTaskPromotePrompt(
             input.sessionId,
             input.taskId,
@@ -713,11 +720,12 @@ async function run(argv: string[]): Promise<number> {
       }
       return execution.status === "executed" ? 0 : 2;
     }
-    printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
+    const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, input.sessionId, "task_promote");
     printHarnessCompletionProtocol({
       tag: "task_promote",
       outcome: report.status === "ready" ? "ready" : "blocked",
       missingItems: report.json.missing,
+      requiredReviewAvailable: reviewAvailable,
       nextPrompt: buildTaskPromotePrompt(
         input.sessionId,
         input.taskId,
@@ -1140,15 +1148,17 @@ function printHarnessCompletionProtocol(input: {
   console.log(buildHarnessCompletionProtocol(input).markdown);
 }
 
-function printHarnessScopeReviewSafely(repoRoot: string, sessionId: string | undefined, trigger: HarnessReviewTrigger): void {
+function printHarnessScopeReviewSafely(repoRoot: string, sessionId: string | undefined, trigger: HarnessReviewTrigger): boolean {
   if (!sessionId) {
     console.log(`# Harness Scope Review\n\n- trigger: ${trigger}\n- status: unavailable\n- detail: sessionId missing\n`);
-    return;
+    return false;
   }
   try {
     console.log(buildHarnessScopeReview(repoRoot, sessionId, trigger).markdown);
+    return true;
   } catch (error) {
     console.log(`# Harness Scope Review\n\n- trigger: ${trigger}\n- status: unavailable\n- detail: ${normalizePromptLine(error instanceof Error ? error.message : "scope review failed")}\n`);
+    return false;
   }
 }
 
@@ -1886,11 +1896,14 @@ function runLoopCommand(command: string, args: string[]): number {
     console.log(`\n- selection required: specify loopId and selectionToken=${selectionToken}`);
     const completionTag = loopCompletionTag(command);
     const reviewTrigger = loopReviewTrigger(command);
-    if (reviewTrigger) printHarnessScopeReviewSafely(repoRoot, options["session-id"], reviewTrigger);
+    const reviewAvailable = reviewTrigger
+      ? printHarnessScopeReviewSafely(repoRoot, options["session-id"], reviewTrigger)
+      : true;
     if (completionTag) printHarnessCompletionProtocol({
       tag: completionTag,
       outcome: "blocked",
       missingItems: ["loop selection"],
+      requiredReviewAvailable: reviewAvailable,
       nextPrompt: buildLoopCurrentPrompt(command, { ...options, "selection-token": selectionToken })
     });
     return 2;
@@ -1900,11 +1913,14 @@ function runLoopCommand(command: string, args: string[]): number {
     const detail = rollback?.detail ?? `${command} would target ${selected.loopId}`;
     console.log(`# Loop ${command} report\n\n- loop id: ${selected.loopId}\n- status: ${selected.status}\n- detail: ${detail}${rollback ? `\n- removable files: ${rollback.removableFiles.join(", ") || "none"}\n- blocked files: ${rollback.blockedFiles.join(", ") || "none"}` : ""}\n`);
     const reviewTrigger = loopReviewTrigger(command);
-    if (reviewTrigger) printHarnessScopeReviewSafely(repoRoot, selected.sessionId, reviewTrigger);
+    const reviewAvailable = reviewTrigger
+      ? printHarnessScopeReviewSafely(repoRoot, selected.sessionId, reviewTrigger)
+      : true;
     const completionTag = loopCompletionTag(command);
     if (completionTag) printHarnessCompletionProtocol({
       tag: completionTag,
       outcome: "ready",
+      requiredReviewAvailable: reviewAvailable,
       nextPrompt: buildLoopCurrentPrompt(command, options, selected)
     });
     return 0;
@@ -1930,28 +1946,53 @@ function runLoopCommand(command: string, args: string[]): number {
   else if (command === "approve") {
     if (!options["work-item-id"] || !options["condition-value"] || !options["approved-by"]) {
       console.log("# Loop approve blocked\n\n- missing: work-item-id, condition-value, or approved-by\n");
-      printHarnessScopeReviewSafely(repoRoot, selected.sessionId, "loop_approve");
+      const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, selected.sessionId, "loop_approve");
       printHarnessCompletionProtocol({
         tag: "loop_approve",
         outcome: "blocked",
         missingItems: ["approval evidence"],
+        requiredReviewAvailable: reviewAvailable,
         nextPrompt: buildLoopCurrentPrompt(command, options, selected)
       });
       return 2;
     }
     approveLoopCondition(repoRoot, selected.loopId, options["work-item-id"], options["condition-value"], options["approved-by"]);
   }
-  else if (command === "delete") softDeleteLoop(repoRoot, selected.loopId, options.reason ?? "deleted by loop command", new Date(), options["replacement-loop-id"], options["exclusion-approved"] === "true");
+  else if (command === "delete") {
+    const exclusionValue = options["exclusion-approved"]?.toLowerCase();
+    const invalidBoolean = exclusionValue !== undefined && !["true", "false"].includes(exclusionValue);
+    const missingDisposition = selected.required && !options["replacement-loop-id"] && exclusionValue !== "true";
+    if (invalidBoolean || missingDisposition) {
+      console.log([
+        "# Loop delete blocked",
+        "",
+        `- invalid exclusion approval: ${invalidBoolean ? options["exclusion-approved"] : "none"}`,
+        `- required disposition missing: ${missingDisposition ? "yes" : "no"}`,
+        "- state change: not applied"
+      ].join("\n"));
+      const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, selected.sessionId, "loop_delete");
+      printHarnessCompletionProtocol({
+        tag: "loop_delete",
+        outcome: "blocked",
+        missingItems: [invalidBoolean ? "valid exclusion-approved boolean" : "replacement loop or exclusion approval"],
+        requiredReviewAvailable: reviewAvailable,
+        nextPrompt: buildLoopCurrentPrompt(command, options, selected)
+      });
+      return 2;
+    }
+    softDeleteLoop(repoRoot, selected.loopId, options.reason ?? "deleted by loop command", new Date(), options["replacement-loop-id"], exclusionValue === "true");
+  }
   else if (command === "restore") restoreLoop(repoRoot, selected.loopId);
   else if (command === "rollback") {
     const plan = buildRollbackReport(repoRoot, selected.loopId);
     if (!options["approved-paths"]) {
       console.log(`# Loop rollback\n\n- ${plan.detail}\n- removable files: ${plan.removableFiles.join(", ") || "none"}\n- blocked files: ${plan.blockedFiles.join(", ") || "none"}\n- file changes: not applied; --approved-paths is required\n`);
-      printHarnessScopeReviewSafely(repoRoot, selected.sessionId, "loop_rollback");
+      const reviewAvailable = printHarnessScopeReviewSafely(repoRoot, selected.sessionId, "loop_rollback");
       printHarnessCompletionProtocol({
         tag: "loop_rollback",
         outcome: "blocked",
         missingItems: ["approved paths"],
+        requiredReviewAvailable: reviewAvailable,
         nextPrompt: buildLoopCurrentPrompt(command, options, selected)
       });
       return plan.ready ? 2 : 3;
@@ -1961,11 +2002,14 @@ function runLoopCommand(command: string, args: string[]): number {
   const updated = listLoopRuns(repoRoot, undefined, true).find((loop) => loop.loopId === selected.loopId);
   console.log(`# Loop ${command}\n\n- loop id: ${selected.loopId}\n- status: ${updated?.status ?? "unknown"}\n`);
   const reviewTrigger = loopReviewTrigger(command);
-  if (reviewTrigger) printHarnessScopeReviewSafely(repoRoot, updated?.sessionId ?? selected.sessionId, reviewTrigger);
+  const reviewAvailable = reviewTrigger
+    ? printHarnessScopeReviewSafely(repoRoot, updated?.sessionId ?? selected.sessionId, reviewTrigger)
+    : true;
   const completionTag = loopCompletionTag(command);
   if (completionTag && updated) printHarnessCompletionProtocol({
     tag: completionTag,
     outcome: "executed",
+    requiredReviewAvailable: reviewAvailable,
     nextPrompt: buildLoopExecutedNextPrompt(command, updated)
   });
   return 0;

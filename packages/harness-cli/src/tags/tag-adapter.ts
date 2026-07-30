@@ -170,7 +170,9 @@ export function expandHarnessTagBlockArgs(tag: HarnessTag, args: string[]): stri
       sessionid: "--session-id", 세션번호: "--session-number", 세션명: "--session-name",
       완료태스크: "--completed-tasks", 이슈현행화: "--issue-update", 남은작업: "--remaining",
       회고: "--retrospective", 다음세션인계: "--handoff", 커밋메시지: "--message",
-      pr제목: "--pr-title", 관련이슈: "--related-issue", 이슈제목: "--issue-title"
+      pr제목: "--pr-title", 관련이슈: "--related-issue", 이슈제목: "--issue-title",
+      종료이슈: "--verified-issue", 검증종료이슈: "--verified-issue",
+      유지이슈: "--keep-issue", 인계이슈: "--handoff-issue"
     }
   };
   const parsed: string[] = [];
