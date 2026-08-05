@@ -666,14 +666,14 @@ DSN-010의 네 모드를 유지한다.
 |---|---:|---:|---:|---|
 | `json-only` | Y | N | N | legacy HCP만 허용 |
 | `dual-write-json-primary`, DB 정상 | Y | Y | Y | 제한된 2.0 Pilot 허용. JSON은 상태 읽기 원본, DB는 counter·claim 권한 원본 |
-| `dual-write-json-primary`, DB 장애 | 정책으로 허용된 legacy 변경만 가능 | N | N | 2.0 식별·동시성 기능 fail-closed |
+| `dual-write-json-primary`, DB 장애 | 새 변경 N. 이미 시작한 일반 mutation은 pending evidence를 보존하고 일시정지 | N | N | 전체 작업 일시정지 |
 | `db-primary-json-mirror`, DB 정상 | Y | Y | Y | 전체 2.0 기능 허용 |
 | `db-primary-json-mirror`, DB 장애 | N | N | N | snapshot 조회·보고만 허용 |
 | `db-only` | 별도 승인 전 N | 별도 승인 전 N | 별도 승인 전 N | 운영 대상 아님 |
 
 이 표는 저장 모드가 허용할 수 있는 capability의 상한이다. 구현 단계의 feature flag가 더 좁은 범위를 허용할 수 있으며 저장 모드 변경만으로 신규 WG·Task나 mutate 재개를 자동 활성화하지 않는다.
 
-`dual-write-json-primary`의 DB 장애 중 legacy 변경을 허용할지는 환경별 운영정책으로 제한한다. 허용하더라도 기존 단일 Session·단일 Task 범위를 벗어나지 않아야 하며 WG/Task 영구 ID 생성, claim 획득, 교차 Session 상태전이는 차단한다.
+`dual-write-json-primary`에서도 DB 장애가 확인된 뒤에는 legacy 변경을 포함한 새 mutation을 시작하지 않는다. 장애가 일반 mutation의 JSON atomic write 뒤 DB upsert 전에 발생했다면 해당 명령의 pending evidence만 보존하고 작업을 일시정지한다. WG/Task 영구 ID 생성, claim 획득과 교차 Session 상태전이는 항상 차단한다.
 
 ### 13.2 단계별 원본
 
@@ -695,7 +695,7 @@ JSON 상태 + pending-sync outbox를 한 번의 atomic write로 기록
 → DB 실패 시 pending 상태와 실패 evidence 유지
 ```
 
-따라서 JSON 성공·DB 실패를 명령 성공으로 두더라도 재동기화 대상이 유실되지 않는다. DB가 불안정하면 claim과 counter가 필요한 다중 실행 기능은 비활성화한다.
+따라서 JSON 성공·DB 실패가 발생해도 재동기화 대상은 유실되지 않는다. 다만 이를 작업 계속 성공으로 보지 않고 pending 상태를 기록한 뒤 현재 작업을 일시정지한다. DB가 불안정하면 claim과 counter가 필요한 다중 실행 기능도 비활성화한다.
 
 counter·claim·compare-and-set처럼 DB가 권한 원본인 **권한 mutation**은 JSON-first outbox 경로를 사용하지 않는다.
 
@@ -807,12 +807,37 @@ DB 접속정보와 credential은 환경 변수나 로컬 비공개 profile로 �
 
 ### 14.3 DB 장애 허용 범위
 
-| 단계 | 조회·보고 | 로컬 테스트 | HCP 상태 변경 | GitHub·Git 쓰기 |
+| 단계 | 조회·진단 | 새 구현·테스트 | HCP 상태 변경 | GitHub·Git 쓰기 |
 |---|---:|---:|---:|---:|
-| JSON primary | 허용 | 허용 | 13.1.1 capability 범위에서 허용. DB 장애 시 legacy 변경만 정책적으로 허용하고 WG·Task 채번·claim·교차 Session 전이는 차단 | 기존 gate와 capability를 모두 통과할 때 허용 |
-| DB primary | last-known snapshot 표시와 함께 허용 | 소스 비변경 검증 허용 | 차단 | 차단 |
+| JSON primary | 장애·마지막 확정 상태 조회만 허용 | 차단 | 차단 | 차단 |
+| DB primary | `stale/read-only` 표시와 함께 허용 | 차단 | 차단 | 차단 |
 
-DB primary 장애 중 보고는 반드시 `stale/read-only`를 표시하며 실행 프롬프트를 생성하지 않는다.
+DB 장애 또는 결과 확인 불가는 저장 모드와 관계없이 현재 작업을 일시정지한다. 이미 실행 중인 안전한 읽기·테스트 프로세스는 종료할 수 있지만 새 구현, 정적 검사, 단위 테스트, registry mutation, ID 채번, migration·reset과 Git 변경을 시작하지 않는다. 자동 JSON fallback, 대체 DB를 이용한 작업 지속, 자동 재시도와 rollback은 허용하지 않는다.
+
+### 14.4 DB 장애 일시정지와 단일 PostgreSQL 검증
+
+PLAN-REGISTRY 검증은 `jkadh db registry-verify` 단일 흐름으로 수행한다. 명령은 설정된 `JKADH_DB_*` 좌표에 대한 `db check`를 가장 먼저 실행하고, 연결과 지원 PostgreSQL 버전 및 pre-registry migration 7이 확인된 경우에만 단위 테스트, 정적 검사와 실제 PostgreSQL 통합 테스트를 순서대로 시작한다. 통합 검증 뒤에는 `db check`를 다시 실행하여 migration이 7로 유지됐는지 확인한다. Harness 실행 환경은 `local` 또는 `dev`를 허용하지만 검증 DB와 registry 실행형 mutation은 모두 `jkadh_dev`로 제한한다.
+
+DB 연결이 첫 점검에서 실패하면 상태를 `paused`로 기록하고 뒤의 검증을 실행하지 않는다. DB 작업을 시작한 뒤 연결이 끊기거나 commit 결과가 불명확하면 `recovery_required`와 `operationResult=unknown`을 기록하고 같은 `allocationKey` 또는 `operationKey`의 기존 결과를 확인하기 전에는 재실행하지 않는다. assertion, DDL, 정책 불변식 실패는 `blocked`로 구분한다.
+
+실제 PostgreSQL 통합 테스트는 정상 연결된 DB 서버에 고유 `jkadh_registry_it_<uuid>` 데이터베이스를 만들어 production pre-registry baseline을 적용한다. pending migration은 한 transaction에서 적용·구조 확인·rollback하고, registry baseline을 적용한 뒤 실제 `bootstrapWorkGroup`·`allocateRegistryTask`로 동시 채번, 정책 제약, 번호 비재사용과 재실행을 검증한다. 공유 `jkadh_dev` row는 변경하지 않는다.
+
+임시 데이터베이스 recovery manifest는 장애 우회나 검증 완료 대체 수단이 아니라 테스트 격리와 정리 보장에만 사용한다. PostgreSQL 명령 전에 recovery-file 기준 원자 run lock을 획득하여 한 번에 하나의 통합 검증만 허용하고, 잠금은 남은 DB 복구·예약·생성·검증·정리가 끝날 때까지 유지한다. 기존 잠금은 경과 시간만으로 자동 삭제하지 않으며 소유자와 recovery manifest를 확인한 뒤에만 수동 복구한다. 예약·생성된 테스트 DB는 성공과 실패 경로에서 항상 정리한다. 연결 단절이나 프로세스 종료로 manifest가 남으면 같은 PostgreSQL 좌표에서 남은 DB를 확인·정리하기 전까지 `cleanup_required`와 `recovery_required`를 유지하며 새 테스트 DB를 만들지 않는다.
+
+검증 evidence는 최소 다음을 포함한다.
+
+- 상태 `verified | paused | recovery_required | blocked`
+- 마지막 완료 단계와 실행 명령
+- commit SHA, registry 소스 fingerprint, baseline·migration SHA-256
+- DB 작업 결과 `not_started | confirmed | unknown`
+- 확인한 PostgreSQL 버전, 임시 DB와 정리 상태
+- 검증 전후 migration version, 단계별 상태·명령·소요시간과 복구한 임시 DB
+
+commit SHA, 소스 fingerprint 또는 DDL checksum이 바뀌거나 검증 실행 중 identity가 변경되면 이전 결과를 무효화하고 자동 재개하지 않는다. 손상되거나 지원하지 않는 evidence도 무효화 사유를 기록하고 fail-closed로 다시 시작한다. evidence는 소스 fingerprint를 사후 변경하지 않도록 `.hcp/verification/` 아래 파일에만 기록하며, 기본 경로는 `.hcp/verification/PLAN-REGISTRY.json`이다. credential은 기록하지 않는다.
+
+registry 실행 결과는 보고서 문자열과 함께 `failureKind`, `operationKey`, `lastConfirmedBoundary`, `transactionResult`, `retryAllowed`, `primaryStatus`를 구조화한다. DB 연결 종료 실패가 원래 mutation 결과와 함께 발생하면 원래 상태를 `primaryStatus`에 보존하고 `closeFailure`를 별도로 기록한다.
+
+DB 복구 후에는 read-only `db check`, 미확정 처리키, 현재 identity와 recovery manifest를 먼저 확인한다. 정합성이 확인된 경우에도 중간 단계부터 이어서 완료 처리하지 않고 DB 점검부터 단위·정적·실제 PostgreSQL 통합 테스트까지 전체 단일 검증을 다시 수행한다. 공통 리소스 실행 gate와 `#장애상태조회`는 후속 독립 Task에서 구현한다.
 
 ## 15. GitHub·Git 원격과 DB의 부분 실패 복구
 
@@ -1108,7 +1133,7 @@ RDM-005 하나를 여러 Session이 직접 수정하면 병렬 작업의 hot spo
 16. 세션정리 결과가 RDM-005와 다음 `#세션시작` 프롬프트에 반영된다.
 17. 신규 등록 Issue 생성 뒤 DB 할당 실패와 DB 할당 뒤 Issue 표시 실패를 같은 externalOperationId로 복구한다.
 18. `shared_registration` 승인 없이 진행 중 등록 Issue에 새 WG를 추가하면 차단한다.
-19. DB 장애 중 outbox가 가능한 일반 mutation과 금지된 counter·claim 명령이 구분된다.
+19. 일반 mutation의 DB 실패는 pending outbox를 보존한 뒤 작업을 일시정지하고, counter·claim 명령은 권한 결과를 확인할 때까지 재실행이 차단된다.
 20. JSON mirror 완전성 검증이 실패하면 DB primary Pilot과 rollback을 차단한다.
 21. Issue 없는 과거 작업은 legacy `unresolved`로 유지하고 승인 없는 복원용 Issue 생성을 차단한다.
 22. checkpoint·claim 해제·Issue keep/handoff 중 하나가 누락된 `continued` 세션정리를 차단한다.
