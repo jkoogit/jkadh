@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "node --test --experimental-strip-types test/*.test.ts",
-    "check": "node --check --experimental-strip-types src/cli.ts"
+    "check": "node --check --experimental-strip-types src/cli.ts",
+    "verify:registry": "node --experimental-strip-types src/cli.ts db registry-verify"
   },
   "dependencies": {
     "pg": "^8.16.3"

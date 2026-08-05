@@ -17,6 +17,7 @@ import { runDbCheck } from "./db/db-check.ts";
 import { runDbMigrate } from "./db/db-migrate.ts";
 import { runDbBaseline } from "./db/db-baseline.ts";
 import { runDbValidate } from "./db/db-validate.ts";
+import { runRegistryVerification } from "./db/registry-verification.ts";
 import { runDictionaryList } from "./db/dictionary.ts";
 import { buildLifecycleReport } from "./flows/lifecycle-flow.ts";
 import { buildConversationRequestGate, type ConversationRequestKind, type ConversationScopeDecision } from "./flows/conversation-request.ts";
@@ -30,6 +31,7 @@ import { buildTaskProcessReport, parseTaskProcessArgs, type TaskProcessInput } f
 import { buildTaskPromoteReport, executeTaskPromote, parseTaskPromoteArgs, readTaskPromoteBranchStatus } from "./flows/task-promote.ts";
 import { buildTaskPromoteSessionReviewFailureMarkdown, promoteHcpTaskWithSessionReview } from "./flows/task-promote-review.ts";
 import { buildTaskStartReport, buildTaskStartStateRegistrationRecovery, executeTaskStart, parseTaskStartArgs, parseTaskStartBlock } from "./flows/task-start.ts";
+import { runRegistryCli } from "./flows/registry-flow.ts";
 import { checkProjectAccess, loadProjectProfile, resolveProjectLocalPath } from "./projects/project-profile.ts";
 import { createReportDocument } from "./reports/create-report.ts";
 import { runBoundedGitHubCommand } from "./process/bounded-command.ts";
@@ -109,6 +111,10 @@ function printUsage(): void {
   jkadh db init [--dry-run|--execute]
   jkadh db reset [--dry-run|--execute]
   jkadh db validate
+  jkadh db registry-verify [--evidence-file <path>]
+  jkadh registry repository register --repository-key <key> --repository-full-name <owner/repository> --lifecycle-policy <policy> [--execute]
+  jkadh registry work-group bootstrap --repository-key <key> --issue <number> --issue-title <title> --issue-url <url> --title <title> [--execute]
+  jkadh registry task allocate --repository-key <key> --work-group-id <id> --issue <number> --issue-title <title> --issue-url <url> --session-id <id> --task-name <name> [--execute]
   jkadh dictionary list
   jkadh report create
 `);
@@ -803,6 +809,25 @@ async function run(argv: string[]): Promise<number> {
       console.log(buildDbErrorMarkdown("Harness CLI db validate", error));
       return 2;
     }
+  }
+
+  if (scope === "db" && command === "registry-verify") {
+    try {
+      const repoRoot = resolveGitRoot(process.cwd());
+      const options = parseRegistryVerificationArgs(argv.slice(2));
+      const result = runRegistryVerification(repoRoot, options);
+      console.log(result.markdown);
+      return result.status === "verified" ? 0 : 2;
+    } catch (error) {
+      console.log(buildDbErrorMarkdown("PLAN-REGISTRY DB verification", error));
+      return 2;
+    }
+  }
+
+  if (scope === "registry") {
+    const result = await runRegistryCli(process.cwd(), command, argv.slice(2));
+    console.log(result.markdown);
+    return result.status === "planned" || result.status === "executed" ? 0 : 2;
   }
 
   if (scope === "dictionary" && command === "list") {
@@ -1658,6 +1683,25 @@ export function tagCommandArgs(tag: HarnessTag, mode: "execute" | "report" | "me
     return mode === "execute" ? ["session", "close", "--execute", ...normalizedArgs] : ["session", "close", ...normalizedArgs];
   }
   return ["report", "create"];
+}
+
+function parseRegistryVerificationArgs(args: string[]): { evidenceFile?: string } {
+  if (args.includes("--gate")) {
+    throw new Error("--gate was removed; registry verification now uses one DB-first flow");
+  }
+  const supported = new Set(["--evidence-file"]);
+  for (const value of args) {
+    if (value.startsWith("--") && !supported.has(value)) throw new Error(`unsupported registry verification option: ${value}`);
+  }
+  return { evidenceFile: readRegistryVerificationOption(args, "--evidence-file") };
+}
+
+function readRegistryVerificationOption(args: string[], name: string): string | undefined {
+  const index = args.indexOf(name);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`);
+  return value;
 }
 
 function inlineTagArgs(command: string, args: string[]): string[] {
