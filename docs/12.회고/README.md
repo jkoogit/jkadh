@@ -39,7 +39,7 @@
 | RET-022 | [2026-07-28 023_HCP_세션정리_회고snapshot_상태전환_보완](./RET-022_2026-07-28_023_HCP_세션정리_회고snapshot_상태전환_보완_회고.md) | Draft |
 | RET-023 | [2026-07-29 024_HCP_세션작업_운영검증과_세션정리_Issue결산게이트_보완](./RET-023_2026-07-29_024_HCP_세션작업_운영검증과_세션정리_Issue결산게이트_보완_회고.md) | Draft |
 | RET-024 | [2026-07-31 025_HCP_세션정리_최종현황리뷰와_다음세션프롬프트_보완](./RET-024_2026-07-31_025_HCP_세션정리_최종현황리뷰와_다음세션프롬프트_보완_회고.md) | Draft |
-| RET-025 | [2026-08-11 026_HCP_PLAN_REGISTRY_구현범위확정과_착수](./RET-025_2026-08-11_026_HCP_PLAN_REGISTRY_구현범위확정과_착수_회고.md) | Draft |
+| RET-025 | [2026-08-12 026_HCP_PLAN-REGISTRY_Repository_registry·Issue_bootstrap·WG_Task_counter_구현](./RET-025_2026-08-12_026_HCP_PLAN-REGISTRY_Repository_registry·Issue_bootstrap·WG_Task_counter_구현_회고.md) | Draft |
 
 ## 관련 문서
 
